@@ -473,8 +473,6 @@ def main():
         config["output_dir"] = args.output_dir
     if args.train_steps is not None:
         config["dqn"]["train_steps"] = args.train_steps
-        # Scale epsilon decay to 50% of training budget
-        config["dqn"]["epsilon_decay_steps"] = args.train_steps // 2
     if args.eval_episodes is not None:
         config["evaluation"]["eval_episodes"] = args.eval_episodes
     if args.device is not None:

@@ -21,19 +21,19 @@
     "lr": 0.00025,
     "gamma": 0.99,
     "epsilon_start": 1.0,
-    "epsilon_end": 0.01,
-    "epsilon_decay_steps": 40000,
-    "buffer_size": 10000,
+    "epsilon_end": 0.05,
+    "epsilon_decay_steps": 500000,
+    "buffer_size": 500000,
     "batch_size": 32,
     "target_update_freq": 1000,
     "train_freq": 4,
-    "learning_starts": 1000,
-    "train_steps": 50000,
+    "learning_starts": 10000,
+    "train_steps": 3000000,
     "frame_stack": 4,
     "grad_clip": 10.0
   },
   "consolidation": {
-    "buffer_per_game": 2000,
+    "buffer_per_game": 5000,
     "htcl": {
       "eta": 0.9,
       "lambda_reg": 1000.0,
@@ -49,7 +49,7 @@
     }
   },
   "evaluation": {
-    "eval_episodes": 5,
+    "eval_episodes": 30,
     "eval_epsilon": 0.01
   },
   "output_dir": "./results"
