@@ -22,7 +22,7 @@
     "gamma": 0.99,
     "epsilon_start": 1.0,
     "epsilon_end": 0.01,
-    "epsilon_decay_steps": 25000,
+    "epsilon_decay_steps": 40000,
     "buffer_size": 10000,
     "batch_size": 32,
     "target_update_freq": 1000,
@@ -38,9 +38,10 @@
       "eta": 0.9,
       "lambda_reg": 1000.0,
       "max_norm": 1.0,
-      "catchup_iterations": 5,
-      "catchup_lr": 0.01,
-      "catchup_lambda": 500.0
+      "catchup_iterations": 10,
+      "catchup_lr": 0.001,
+      "catchup_lambda": 10000.0,
+      "catchup_patience": 2
     },
     "ewc": {
       "lambda_ewc": 5000.0,

@@ -197,20 +197,25 @@ def run_ewc(game_ids, config, device, results_mgr):
     return model, performance_trajectory
 
 
-def run_htcl(game_ids, config, device, results_mgr):
+def run_htcl(game_ids, config, device, results_mgr,
+             pretrained_models=None, pretrained_buffers=None):
     """
-    HTCL: train local agents from global, consolidate via Taylor update.
+    HTCL: consolidate local agents into a global model via Taylor update.
 
-    Flow:
-        1. Init global model
-        2. For each game:
-           a. Copy global -> local
-           b. Train local on game
-           c. Taylor update: consolidate local into global
-        3. Catch-up phase
+    If pretrained_models and pretrained_buffers are provided (from
+    run_individual), those are reused as local agents. Otherwise,
+    local agents are trained from scratch per game.
+
+    Args:
+        pretrained_models: Dict[game_id -> nn.Module] from run_individual
+        pretrained_buffers: Dict[game_id -> ReplayBuffer] from run_individual
     """
+    reuse = pretrained_models is not None and pretrained_buffers is not None
+    label = "HTCL Taylor Consolidation (reusing individual agents)" if reuse \
+        else "HTCL Taylor Consolidation (training local agents)"
+
     print("\n" + "=" * 60)
-    print("PHASE: HTCL Taylor Consolidation")
+    print(f"PHASE: {label}")
     print("=" * 60)
 
     dqn_cfg = config["dqn"]
@@ -228,18 +233,22 @@ def run_htcl(game_ids, config, device, results_mgr):
     )
 
     for stage_idx, gid in enumerate(game_ids):
-        print(f"\n--- HTCL: Training local agent on {gid} ---")
-        env = make_atari_env(gid, unified_dim, dqn_cfg["frame_stack"], config["seed"])
-        mask = get_action_mask(gid, unified_dim)
+        if reuse:
+            print(f"\n--- HTCL: Reusing individual agent for {gid} ---")
+            local_model = copy.deepcopy(pretrained_models[gid]).to(device)
+            consolidation_buffer.add_game(gid, pretrained_buffers[gid])
+        else:
+            print(f"\n--- HTCL: Training local agent on {gid} ---")
+            env = make_atari_env(gid, unified_dim, dqn_cfg["frame_stack"], config["seed"])
+            mask = get_action_mask(gid, unified_dim)
 
-        local_model = copy.deepcopy(global_model).to(device)
-        local_model, buffer, _ = train_dqn_on_env(
-            local_model, env, mask, device, dqn_cfg,
-        )
-        env.close()
-
-        consolidation_buffer.add_game(gid, buffer)
-        del buffer
+            local_model = copy.deepcopy(global_model).to(device)
+            local_model, buffer, _ = train_dqn_on_env(
+                local_model, env, mask, device, dqn_cfg,
+            )
+            env.close()
+            consolidation_buffer.add_game(gid, buffer)
+            del buffer
 
         if stage_idx == 0:
             global_model.load_state_dict(local_model.state_dict())
@@ -495,6 +504,8 @@ def main():
     models_to_eval = {}
     trajectories = {}
     training_logs = {}
+    indiv_models = None
+    indiv_buffers = None
 
     # --- Individual agents ---
     if "individual" in args.methods:
@@ -521,10 +532,12 @@ def main():
         models_to_eval["EWC"] = ewc_model
         trajectories["EWC"] = ewc_traj
 
-    # --- HTCL ---
+    # --- HTCL (reuses individual agents if available) ---
     if "htcl" in args.methods:
         htcl_model, htcl_traj = run_htcl(
             game_ids, config, device, results_mgr,
+            pretrained_models=indiv_models,
+            pretrained_buffers=indiv_buffers,
         )
         models_to_eval["HTCL"] = htcl_model
         trajectories["HTCL"] = htcl_traj
