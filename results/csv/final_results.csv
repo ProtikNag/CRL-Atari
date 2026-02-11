@@ -1,0 +1,13 @@
+method,game,game_id,mean_reward,std_reward,min_reward,max_reward
+Individual,Pong,ALE/Pong-v5,-21.0,0.0,-21.0,-21.0
+Individual,Breakout,ALE/Breakout-v5,0.0,0.0,0.0,0.0
+Individual,SpaceInvaders,ALE/SpaceInvaders-v5,105.0,53.94441583704471,30.0,155.0
+Sequential,Pong,ALE/Pong-v5,-21.0,0.0,-21.0,-21.0
+Sequential,Breakout,ALE/Breakout-v5,0.0,0.0,0.0,0.0
+Sequential,SpaceInvaders,ALE/SpaceInvaders-v5,61.0,62.72160712226688,0.0,140.0
+EWC,Pong,ALE/Pong-v5,-21.0,0.0,-21.0,-21.0
+EWC,Breakout,ALE/Breakout-v5,0.6,0.48989794855663565,0.0,1.0
+EWC,SpaceInvaders,ALE/SpaceInvaders-v5,87.0,9.273618495495704,80.0,105.0
+HTCL,Pong,ALE/Pong-v5,-21.0,0.0,-21.0,-21.0
+HTCL,Breakout,ALE/Breakout-v5,0.4,0.8,0.0,2.0
+HTCL,SpaceInvaders,ALE/SpaceInvaders-v5,0.0,0.0,0.0,0.0
