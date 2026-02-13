@@ -5,9 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output job%j.%N.out
 #SBATCH --error job%j.%N.err
-#SBATCH -p gpu
-#SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH -p dgx_aic
 
 hostname
 date
@@ -30,7 +28,7 @@ cd /work/pnag/crl_atari/
 # =============================================================================
 
 SEED=42
-TRAIN_STEPS=500000
+TRAIN_STEPS=5000000
 OUTPUT_DIR="./results"
 
 echo "=============================================="
@@ -45,7 +43,7 @@ python main.py \
   --seed ${SEED} \
   --train-steps ${TRAIN_STEPS} \
   --output-dir ${OUTPUT_DIR} \
-  --methods individual sequential ewc htcl
+  --methods individual ewc htcl
 
 echo "=============================================="
 echo "Experiment Completed!"
