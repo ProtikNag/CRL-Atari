@@ -28,7 +28,7 @@
     "target_update_freq": 1000,
     "train_freq": 4,
     "learning_starts": 10000,
-    "train_steps": 5000000,
+    "train_steps": 3000000,
     "frame_stack": 4,
     "grad_clip": 10.0
   },

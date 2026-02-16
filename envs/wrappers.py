@@ -28,6 +28,36 @@ def get_action_mask(game_id: str, unified_dim: int) -> np.ndarray:
     return mask
 
 
+class FireResetEnv(gym.Wrapper):
+    """
+    Press FIRE (action 1) on reset for envs that require it to start.
+
+    After each reset (including life-loss resets when using
+    terminal_on_life_loss), takes the FIRE action so that Pong serves
+    and Breakout launches the ball. Envs without FIRE in their action
+    meanings are passed through unchanged.
+    """
+
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+        action_meanings = env.unwrapped.get_action_meanings()
+        self.fire_needed = "FIRE" in action_meanings
+        if self.fire_needed:
+            self.fire_action = action_meanings.index("FIRE")
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        if self.fire_needed:
+            obs, _, terminated, truncated, info = self.env.step(self.fire_action)
+            if terminated or truncated:
+                obs, info = self.env.reset(**kwargs)
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return obs, reward, terminated, truncated, info
+
+
 class UnifiedActionWrapper(gym.ActionWrapper):
     """
     Wraps environment to accept actions from a unified (larger) action space.
@@ -59,8 +89,9 @@ def make_atari_env(
     Pipeline:
         1. Raw ALE env (frameskip=1, no sticky actions)
         2. AtariPreprocessing (frame skip, grayscale, resize 84x84, noop reset)
-        3. FrameStack (4 frames)
-        4. UnifiedActionWrapper (expand to unified action space)
+        3. FireResetEnv (auto-press FIRE on reset for Pong/Breakout)
+        4. FrameStack (4 frames)
+        5. UnifiedActionWrapper (expand to unified action space)
     """
     env = gym.make(
         game_id,
@@ -77,6 +108,7 @@ def make_atari_env(
         grayscale_obs=True,
         scale_obs=False,
     )
+    env = FireResetEnv(env)
     try:
         env = gym.wrappers.FrameStackObservation(env, stack_size=frame_stack)
     except AttributeError:
