@@ -1,0 +1,51 @@
+seed: 42
+device: auto
+
+games:
+  - ALE/Pong-v5
+  - ALE/Breakout-v5
+
+game_labels:
+  ALE/Pong-v5: Pong
+  ALE/Breakout-v5: Breakout
+
+unified_action_dim: 6
+
+action_dims:
+  ALE/Pong-v5: 6
+  ALE/Breakout-v5: 4
+
+dqn:
+  lr: 0.00025
+  gamma: 0.99
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay_steps: 100000
+  buffer_size: 100000
+  batch_size: 32
+  target_update_freq: 1000
+  train_freq: 4
+  learning_starts: 5000
+  train_steps: 200000
+  frame_stack: 4
+  grad_clip: 10.0
+
+consolidation:
+  buffer_per_game: 5000
+  htcl:
+    eta: 0.9
+    lambda_reg: 1000.0
+    max_norm: 1.0
+    catchup_iterations: 10
+    catchup_lr: 0.001
+    catchup_lambda: 10000.0
+    catchup_patience: 2
+  ewc:
+    lambda_ewc: 5000.0
+    fisher_samples: 5000
+
+evaluation:
+  eval_episodes: 10
+  eval_epsilon: 0.01
+
+output_dir: ./results_validate

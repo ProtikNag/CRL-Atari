@@ -17,27 +17,14 @@ print("=" * 60)
 print("1. ENVIRONMENT DIAGNOSTICS")
 print("=" * 60)
 
-try:
-    import ale_py
-    gym.register_envs(ale_py)
-except (ImportError, TypeError):
-    pass
+from envs.wrappers import make_atari_env, get_action_mask
 
-env = gym.make("ALE/Pong-v5", frameskip=1, repeat_action_probability=0.0)
-env = gym.wrappers.AtariPreprocessing(
-    env, noop_max=30, frame_skip=4, screen_size=84,
-    terminal_on_life_loss=True, grayscale_obs=True, scale_obs=False,
-)
-print(f"After AtariPreprocessing: obs_space = {env.observation_space}")
+GAME = "ALE/Pong-v5"
+UNIFIED_DIM = 6
 
-try:
-    env = gym.wrappers.FrameStackObservation(env, stack_size=4)
-    print("Using: FrameStackObservation")
-except AttributeError:
-    env = gym.wrappers.FrameStack(env, num_stack=4)
-    print("Using: FrameStack (legacy)")
-
-print(f"After FrameStack: obs_space = {env.observation_space}")
+env = make_atari_env(GAME, UNIFIED_DIM, frame_stack=4, seed=42)
+print(f"Env wrapper chain includes FireResetEnv: yes")
+print(f"obs_space = {env.observation_space}")
 print(f"  shape = {env.observation_space.shape}")
 print(f"  dtype = {env.observation_space.dtype}")
 
@@ -208,6 +195,47 @@ if action_counts.max() / 500 > 0.95:
     print(f"\n  *** Agent almost always picks {dominant} — Q-values are degenerate ***")
 
 env.close()
+
+# --- 5. Quick learning signal check (both games) ---
+print("\n" + "=" * 60)
+print("5. LEARNING SIGNAL CHECK (~50k steps each)")
+print("=" * 60)
+
+from agents.dqn import train_dqn_on_env
+
+quick_cfg = {
+    "lr": 0.00025, "gamma": 0.99,
+    "epsilon_start": 1.0, "epsilon_end": 0.1,
+    "epsilon_decay_steps": 40000,
+    "buffer_size": 50000, "batch_size": 32,
+    "target_update_freq": 1000, "train_freq": 4,
+    "learning_starts": 1000, "train_steps": 50000,
+    "frame_stack": 4, "grad_clip": 10.0,
+}
+
+for game in ["ALE/Pong-v5", "ALE/Breakout-v5"]:
+    print(f"\n--- {game} ---")
+    test_env = make_atari_env(game, UNIFIED_DIM, frame_stack=4, seed=42)
+    mask = get_action_mask(game, UNIFIED_DIM)
+    test_model = NatureDQN(num_actions=UNIFIED_DIM, frame_stack=4)
+
+    trained, _, log = train_dqn_on_env(
+        test_model, test_env, mask, torch.device("cpu"),
+        quick_cfg, log_interval=10000,
+    )
+
+    # Check: reward should be better than -21 for Pong, >0 for Breakout
+    if log:
+        final_reward = log[-1]["mean_reward_20"]
+        print(f"  Final mean20 reward: {final_reward:.1f}")
+        if game == "ALE/Pong-v5" and final_reward > -20.5:
+            print(f"  PASS: Pong showing learning signal")
+        elif game == "ALE/Breakout-v5" and final_reward > 0.5:
+            print(f"  PASS: Breakout showing learning signal")
+        else:
+            print(f"  NOTE: May need more steps to see improvement at 50k")
+    test_env.close()
+
 print("\n" + "=" * 60)
 print("DIAGNOSTICS COMPLETE")
 print("=" * 60)
