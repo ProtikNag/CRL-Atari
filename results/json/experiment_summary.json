@@ -55,7 +55,7 @@
     },
     "output_dir": "./results"
   },
-  "timestamp": "2026-02-13 11:53:43",
+  "timestamp": "2026-02-17 16:33:30",
   "final_results": {
     "Individual": {
       "ALE/Pong-v5": {
@@ -63,40 +63,40 @@
         "std_reward": 0.0
       },
       "ALE/Breakout-v5": {
-        "mean_reward": 0.3333333333333333,
-        "std_reward": 0.7453559924999299
+        "mean_reward": 18.7,
+        "std_reward": 13.523189958980337
       },
       "ALE/SpaceInvaders-v5": {
-        "mean_reward": 702.5,
-        "std_reward": 238.46645466396316
+        "mean_reward": 613.0,
+        "std_reward": 235.23250909118266
       }
     },
     "EWC": {
       "ALE/Pong-v5": {
-        "mean_reward": -20.933333333333334,
-        "std_reward": 0.24944382578492943
+        "mean_reward": -21.0,
+        "std_reward": 0.0
       },
       "ALE/Breakout-v5": {
-        "mean_reward": 0.06666666666666667,
-        "std_reward": 0.24944382578492943
+        "mean_reward": 0.0,
+        "std_reward": 0.0
       },
       "ALE/SpaceInvaders-v5": {
-        "mean_reward": 171.0,
-        "std_reward": 125.82660026136499
+        "mean_reward": 271.3333333333333,
+        "std_reward": 133.35374843708829
       }
     },
     "HTCL": {
       "ALE/Pong-v5": {
-        "mean_reward": -21.0,
-        "std_reward": 0.0
+        "mean_reward": -20.966666666666665,
+        "std_reward": 0.1795054935711501
       },
       "ALE/Breakout-v5": {
         "mean_reward": 0.23333333333333334,
         "std_reward": 0.4229525846816506
       },
       "ALE/SpaceInvaders-v5": {
-        "mean_reward": 114.33333333333333,
-        "std_reward": 55.08680019347244
+        "mean_reward": 4.0,
+        "std_reward": 8.0
       }
     }
   },
@@ -105,64 +105,64 @@
     "EWC": {
       "ALE/Pong-v5": {
         "ALE/Pong-v5": -21.0,
-        "ALE/Breakout-v5": 0.1,
-        "ALE/SpaceInvaders-v5": 2.8333333333333335
+        "ALE/Breakout-v5": 0.0,
+        "ALE/SpaceInvaders-v5": 102.5
       },
       "ALE/Breakout-v5": {
         "ALE/Pong-v5": -21.0,
-        "ALE/Breakout-v5": 33.36666666666667,
-        "ALE/SpaceInvaders-v5": 31.5
+        "ALE/Breakout-v5": 48.56666666666667,
+        "ALE/SpaceInvaders-v5": 1.3333333333333333
       },
       "ALE/SpaceInvaders-v5": {
-        "ALE/Pong-v5": -20.933333333333334,
-        "ALE/Breakout-v5": 0.1,
-        "ALE/SpaceInvaders-v5": 182.83333333333334
+        "ALE/Pong-v5": -20.966666666666665,
+        "ALE/Breakout-v5": 0.0,
+        "ALE/SpaceInvaders-v5": 267.3333333333333
       }
     },
     "HTCL": {
       "ALE/Pong-v5": {
         "ALE/Pong-v5": -21.0,
-        "ALE/Breakout-v5": 0.23333333333333334,
-        "ALE/SpaceInvaders-v5": 0.8333333333333334
+        "ALE/Breakout-v5": 0.03333333333333333,
+        "ALE/SpaceInvaders-v5": 2.3333333333333335
       },
       "ALE/Breakout-v5": {
         "ALE/Pong-v5": -21.0,
-        "ALE/Breakout-v5": 0.06666666666666667,
-        "ALE/SpaceInvaders-v5": 2.1666666666666665
+        "ALE/Breakout-v5": 0.2,
+        "ALE/SpaceInvaders-v5": 3.3333333333333335
       },
       "ALE/SpaceInvaders-v5": {
-        "ALE/Pong-v5": -21.0,
+        "ALE/Pong-v5": -20.966666666666665,
         "ALE/Breakout-v5": 0.23333333333333334,
-        "ALE/SpaceInvaders-v5": 99.16666666666667
+        "ALE/SpaceInvaders-v5": 4.833333333333333
       }
     }
   },
   "aggregate": {
     "Individual": {
-      "mean_reward": 227.2777777777778,
-      "std_reward": 336.1457006995113,
+      "mean_reward": 203.5666666666667,
+      "std_reward": 289.96639268868535,
       "per_game": {
         "ALE/Pong-v5": -21.0,
-        "ALE/Breakout-v5": 0.3333333333333333,
-        "ALE/SpaceInvaders-v5": 702.5
+        "ALE/Breakout-v5": 18.7,
+        "ALE/SpaceInvaders-v5": 613.0
       }
     },
     "EWC": {
-      "mean_reward": 50.044444444444444,
-      "std_reward": 85.95710098576232,
+      "mean_reward": 83.44444444444444,
+      "std_reward": 133.13383222889144,
       "per_game": {
-        "ALE/Pong-v5": -20.933333333333334,
-        "ALE/Breakout-v5": 0.06666666666666667,
-        "ALE/SpaceInvaders-v5": 171.0
+        "ALE/Pong-v5": -21.0,
+        "ALE/Breakout-v5": 0.0,
+        "ALE/SpaceInvaders-v5": 271.3333333333333
       }
     },
     "HTCL": {
-      "mean_reward": 31.188888888888886,
-      "std_reward": 59.42761755610822,
+      "mean_reward": -5.577777777777777,
+      "std_reward": 10.989703373927505,
       "per_game": {
-        "ALE/Pong-v5": -21.0,
+        "ALE/Pong-v5": -20.966666666666665,
         "ALE/Breakout-v5": 0.23333333333333334,
-        "ALE/SpaceInvaders-v5": 114.33333333333333
+        "ALE/SpaceInvaders-v5": 4.0
       }
     }
   }
