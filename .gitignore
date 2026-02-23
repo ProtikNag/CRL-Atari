@@ -1,0 +1,116 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+develop-eggs/
+pip-wheel-metadata/
+.wheels/
+share/python-wheels/
+*.manifest
+*.spec
+*$py.class
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pyenv
+.python-version
+
+# PDM / Poetry / mypy / pytype / Pyre / Ruff
+.pdm.toml
+.pdm-python
+poetry.lock
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+.ruff_cache/
+
+# -------------------------
+# IDEs & Editors
+# -------------------------
+.idea/
+*.iml
+out/
+.vscode/
+*.swp
+*.swo
+*~
+
+# -------------------------
+# OS-generated files
+# -------------------------
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# Model weights & checkpoints
+# -------------------------
+*.pt
+*.pth
+*.ckpt
+results/checkpoints/
+
+# -------------------------
+# Experiment logs (generated at runtime)
+# -------------------------
+results/logs/
+*.log
+logs/
+
+# -------------------------
+# Weights & Biases / TensorBoard
+# -------------------------
+wandb/
+runs/
+
+# -------------------------
+# Hyperion / HPC cluster outputs
+# -------------------------
+job*.out
+job*.err
+slurm-*.out
+*.slurm.out
+*.slurm.err
+
+# -------------------------
+# Data (downloaded at runtime)
+# -------------------------
+/data/
+

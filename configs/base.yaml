@@ -1,0 +1,128 @@
+# =============================================================================
+# Base Configuration for CRL-Atari
+# =============================================================================
+
+# --- Seed & Reproducibility ---
+seed: 42
+
+# --- Task Sequence ---
+# Full Atari unified action space has 18 actions
+# Each game uses a subset; network outputs all 18
+task_sequence:
+  - PongNoFrameskip-v4
+  - BreakoutNoFrameskip-v4
+  - SpaceInvadersNoFrameskip-v4
+
+# --- DQN Model ---
+model:
+  # CNN backbone
+  conv_channels: [64, 128, 128]
+  conv_kernels: [8, 4, 3]
+  conv_strides: [4, 2, 1]
+  # Fully connected head
+  fc_hidden: 1024
+  unified_action_dim: 18  # Full Atari action space
+  dueling: false
+
+# --- Training (Expert) ---
+training:
+  total_timesteps: 1_000_000
+  learning_rate: 1.0e-4
+  batch_size: 32
+  gamma: 0.99
+  # Replay buffer
+  buffer_size: 100_000
+  min_buffer_size: 10_000
+  # Exploration
+  eps_start: 1.0
+  eps_end: 0.01
+  eps_decay_steps: 250_000
+  # Target network
+  target_update_freq: 1000
+  # Training frequency
+  train_freq: 4
+  gradient_clip: 10.0
+  # Checkpointing
+  save_freq: 50_000
+  eval_freq: 10_000
+  eval_episodes: 10
+
+# --- Q-Value Normalization (PopArt-style) ---
+normalization:
+  enabled: true
+  method: "running_stats"  # "running_stats" | "popart"
+  momentum: 0.01
+  clip_range: 10.0
+
+# --- Atari Environment Wrappers ---
+env:
+  frame_stack: 4
+  frame_skip: 4
+  screen_size: 84
+  noop_max: 30
+  episodic_life: true
+  clip_reward: true
+  grayscale: true
+
+# --- Consolidation (shared) ---
+consolidation:
+  init_from_global: true  # Initialize local models from global state
+
+# --- EWC ---
+ewc:
+  lambda_ewc: 5000.0
+  fisher_samples: 2000
+  online: true
+  gamma_ewc: 0.95  # decay for online EWC
+
+# --- Knowledge Distillation ---
+distillation:
+  temperature: 2.0
+  alpha: 0.5  # weight of distillation loss vs task loss
+  distill_epochs: 50
+  distill_lr: 5.0e-5
+  distill_batch_size: 64
+  buffer_size_per_task: 10_000
+
+# --- HTCL ---
+htcl:
+  hierarchy_levels: 2
+  group_size: 2
+  lambda_htcl: 1.0  # Must satisfy: lambda > -mu_min(H)
+  lambda_auto: true  # Auto-adjust lambda to satisfy constraint
+  lambda_margin: 0.1  # Safety margin above -mu_min(H)
+  fisher_samples: 2000
+  catch_up_iterations: 2
+  eta: 0.9  # Taylor update step size
+  diagonal_fisher: true
+
+# --- Evaluation ---
+evaluation:
+  episodes: 30
+  deterministic: true
+  render: false
+  record_video: false
+
+# --- Logging ---
+logging:
+  log_dir: "results/logs"
+  checkpoint_dir: "results/checkpoints"
+  figure_dir: "results/figures"
+  use_tensorboard: true
+  use_wandb: false
+  wandb_project: "crl-atari"
+  wandb_entity: null
+  log_interval: 1000
+
+# --- Debug Mode ---
+debug:
+  enabled: false
+  total_timesteps: 5000
+  buffer_size: 1000
+  min_buffer_size: 500
+  eval_episodes: 2
+  eval_freq: 1000
+  save_freq: 2500
+  fisher_samples: 100
+  distill_epochs: 5
+  distill_buffer_size: 500
