@@ -364,6 +364,19 @@ class HTCLConsolidator:
             # Ensure lambda constraint: lambda > -mu_min(H)
             effective_lambda = self._ensure_lambda_constraint(self.cumulative_fisher)
 
+            # Log lambda to TensorBoard
+            if self.logger:
+                self.logger.info(
+                    f"HTCL: Task {task_idx + 1} ({game_name}) | "
+                    f"effective_lambda = {effective_lambda:.2f}"
+                )
+                self.logger.log_scalar(
+                    "htcl/effective_lambda", effective_lambda, task_idx + 1
+                )
+                self.logger.log_scalar(
+                    "htcl/num_tasks_consolidated", task_idx + 1, task_idx + 1
+                )
+
             # Apply Taylor update
             updated_sd = self._taylor_update(
                 global_sd,
@@ -372,6 +385,27 @@ class HTCLConsolidator:
                 self.cumulative_gradient,
                 effective_lambda,
             )
+
+            # Log parameter drift and update magnitude
+            if self.logger:
+                drift_norm = sum(
+                    (local_sd[n].to(self.device) - global_sd[n].to(self.device)).norm().item() ** 2
+                    for n in self.cumulative_fisher
+                ) ** 0.5
+                update_norm = sum(
+                    (updated_sd[n] - global_sd[n].to(self.device)).norm().item() ** 2
+                    for n in self.cumulative_fisher
+                ) ** 0.5
+                self.logger.info(
+                    f"HTCL: {game_name} | expert_drift_norm = {drift_norm:.4f} | "
+                    f"update_norm = {update_norm:.4f}"
+                )
+                self.logger.log_scalar(
+                    f"htcl/{game_name}/expert_drift_norm", drift_norm, task_idx + 1
+                )
+                self.logger.log_scalar(
+                    f"htcl/{game_name}/update_norm", update_norm, task_idx + 1
+                )
 
             # Update global state dict
             global_sd = updated_sd

@@ -45,9 +45,9 @@ training:
   train_freq: 4
   gradient_clip: 10.0
   # Checkpointing
-  save_freq: 50_000
-  eval_freq: 10_000
-  eval_episodes: 10
+  save_freq: 100_000
+  eval_freq: 50_000
+  eval_episodes: 5
 
 # --- Q-Value Normalization (PopArt-style) ---
 normalization:
@@ -90,7 +90,7 @@ distillation:
 htcl:
   hierarchy_levels: 2
   group_size: 2
-  lambda_htcl: 1.0  # Must satisfy: lambda > -mu_min(H)
+  lambda_htcl: 100_000.0  # Must satisfy: lambda > -mu_min(H)
   lambda_auto: true  # Auto-adjust lambda to satisfy constraint
   lambda_margin: 0.1  # Safety margin above -mu_min(H)
   fisher_samples: 2000
