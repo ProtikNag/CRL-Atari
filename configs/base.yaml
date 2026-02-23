@@ -16,11 +16,11 @@ task_sequence:
 # --- DQN Model ---
 model:
   # CNN backbone
-  conv_channels: [64, 128, 128]
+  conv_channels: [32, 64, 64]
   conv_kernels: [8, 4, 3]
   conv_strides: [4, 2, 1]
   # Fully connected head
-  fc_hidden: 1024
+  fc_hidden: 512
   unified_action_dim: 18  # Full Atari action space
   dueling: false
 

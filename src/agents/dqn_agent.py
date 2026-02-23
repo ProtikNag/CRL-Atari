@@ -90,13 +90,16 @@ class DQNAgent:
         self.batch_size = train_cfg["batch_size"]
         self.target_update_freq = train_cfg["target_update_freq"]
 
-        # Step counter
-        self.total_steps = 0
+        # Step counters
+        # env_steps: incremented every environment interaction (for epsilon decay)
+        # train_steps: incremented every gradient update (for target network updates)
+        self.env_steps = 0
+        self.train_steps = 0
 
     @property
     def epsilon(self) -> float:
-        """Current exploration rate (linear decay)."""
-        frac = min(self.total_steps / self.eps_decay_steps, 1.0)
+        """Current exploration rate (linear decay based on env steps)."""
+        frac = min(self.env_steps / self.eps_decay_steps, 1.0)
         return self.eps_start + frac * (self.eps_end - self.eps_start)
 
     def select_action(self, state: np.ndarray, deterministic: bool = False) -> int:
@@ -137,6 +140,7 @@ class DQNAgent:
     ) -> None:
         """Store a transition in the replay buffer."""
         self.replay_buffer.push(state, action, reward, next_state, done)
+        self.env_steps += 1
 
     def train_step(self) -> Optional[float]:
         """Perform a single training step (sample batch, compute loss, update).
@@ -181,10 +185,10 @@ class DQNAgent:
         )
         self.optimizer.step()
 
-        self.total_steps += 1
+        self.train_steps += 1
 
-        # Update target network periodically
-        if self.total_steps % self.target_update_freq == 0:
+        # Update target network periodically (based on training steps)
+        if self.train_steps % self.target_update_freq == 0:
             self.update_target_network()
 
         return loss.item()
@@ -205,7 +209,8 @@ class DQNAgent:
             "target_net": self.target_net.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "valid_actions": self.valid_actions,
-            "total_steps": self.total_steps,
+            "env_steps": self.env_steps,
+            "train_steps": self.train_steps,
         }
         if self.normalizer is not None:
             checkpoint["normalizer"] = self.normalizer.state_dict()
@@ -222,7 +227,9 @@ class DQNAgent:
         self.target_net.load_state_dict(checkpoint["target_net"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.valid_actions = checkpoint["valid_actions"]
-        self.total_steps = checkpoint["total_steps"]
+        # Support both old (total_steps) and new (env_steps/train_steps) checkpoints
+        self.env_steps = checkpoint.get("env_steps", checkpoint.get("total_steps", 0))
+        self.train_steps = checkpoint.get("train_steps", checkpoint.get("total_steps", 0))
         if self.normalizer is not None and "normalizer" in checkpoint:
             self.normalizer.load_state_dict(checkpoint["normalizer"])
 
