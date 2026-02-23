@@ -58,7 +58,7 @@ import torch
 if torch.cuda.is_available():
     for i in range(torch.cuda.device_count()):
         props = torch.cuda.get_device_properties(i)
-        print('  GPU %d: %s (%.1f GB)' % (i, torch.cuda.get_device_name(i), props.total_mem / 1e9))
+        print('  GPU %d: %s (%.1f GB)' % (i, torch.cuda.get_device_name(i), props.total_memory / 1e9))
 else:
     print('  No CUDA GPUs detected')
 "
