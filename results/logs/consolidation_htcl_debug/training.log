@@ -1,0 +1,60 @@
+[2026-02-23 00:15:49] INFO - Consolidation method: htcl
+[2026-02-23 00:15:49] INFO - Device: mps
+[2026-02-23 00:15:49] INFO - Debug: True
+[2026-02-23 00:15:49] INFO - Loading expert checkpoints and collecting replay data...
+[2026-02-23 00:15:52] INFO - Loaded 3 expert models.
+[2026-02-23 00:15:52] INFO - Starting HTCL consolidation...
+[2026-02-23 00:15:52] INFO - HTCL: Consolidating task 1/3 (Pong)...
+[2026-02-23 00:15:52] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:15:52] INFO - HTCL: Catch-up iteration 1/2 for Pong
+[2026-02-23 00:15:52] INFO - HTCL: Catch-up iteration 2/2 for Pong
+[2026-02-23 00:15:52] INFO - HTCL: Consolidating task 2/3 (Breakout)...
+[2026-02-23 00:15:52] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:15:52] INFO - HTCL: Catch-up iteration 1/2 for Breakout
+[2026-02-23 00:15:52] INFO - HTCL: Catch-up iteration 2/2 for Breakout
+[2026-02-23 00:15:52] INFO - HTCL: Consolidating task 3/3 (SpaceInvaders)...
+[2026-02-23 00:15:52] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:15:52] INFO - HTCL: Catch-up iteration 1/2 for SpaceInvaders
+[2026-02-23 00:15:52] INFO - HTCL: Catch-up iteration 2/2 for SpaceInvaders
+[2026-02-23 00:15:52] INFO - HTCL consolidation complete.
+[2026-02-23 00:15:52] INFO - Consolidated model saved to results/checkpoints/debug/consolidated_htcl.pt
+[2026-02-23 00:16:26] INFO - Consolidation method: htcl
+[2026-02-23 00:16:26] INFO - Device: mps
+[2026-02-23 00:16:26] INFO - Debug: True
+[2026-02-23 00:16:26] INFO - Loading expert checkpoints and collecting replay data...
+[2026-02-23 00:16:30] INFO - Loaded 3 expert models.
+[2026-02-23 00:16:30] INFO - Starting HTCL consolidation...
+[2026-02-23 00:16:30] INFO - HTCL: Consolidating task 1/3 (Pong)...
+[2026-02-23 00:16:30] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:16:30] INFO - HTCL: Catch-up iteration 1/2 for Pong
+[2026-02-23 00:16:30] INFO - HTCL: Catch-up iteration 2/2 for Pong
+[2026-02-23 00:16:30] INFO - HTCL: Consolidating task 2/3 (Breakout)...
+[2026-02-23 00:16:30] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:16:30] INFO - HTCL: Catch-up iteration 1/2 for Breakout
+[2026-02-23 00:16:30] INFO - HTCL: Catch-up iteration 2/2 for Breakout
+[2026-02-23 00:16:30] INFO - HTCL: Consolidating task 3/3 (SpaceInvaders)...
+[2026-02-23 00:16:30] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:16:30] INFO - HTCL: Catch-up iteration 1/2 for SpaceInvaders
+[2026-02-23 00:16:30] INFO - HTCL: Catch-up iteration 2/2 for SpaceInvaders
+[2026-02-23 00:16:30] INFO - HTCL consolidation complete.
+[2026-02-23 00:16:30] INFO - Consolidated model saved to results/checkpoints/debug/consolidated_htcl.pt
+[2026-02-23 00:47:21] INFO - Consolidation method: htcl
+[2026-02-23 00:47:21] INFO - Device: mps
+[2026-02-23 00:47:21] INFO - Debug: True
+[2026-02-23 00:47:21] INFO - Loading expert checkpoints and collecting replay data...
+[2026-02-23 00:47:24] INFO - Loaded 3 expert models.
+[2026-02-23 00:47:24] INFO - Starting HTCL consolidation...
+[2026-02-23 00:47:24] INFO - HTCL: Consolidating task 1/3 (Pong)...
+[2026-02-23 00:47:24] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:47:24] INFO - HTCL: Catch-up iteration 1/2 for Pong
+[2026-02-23 00:47:24] INFO - HTCL: Catch-up iteration 2/2 for Pong
+[2026-02-23 00:47:24] INFO - HTCL: Consolidating task 2/3 (Breakout)...
+[2026-02-23 00:47:24] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:47:24] INFO - HTCL: Catch-up iteration 1/2 for Breakout
+[2026-02-23 00:47:24] INFO - HTCL: Catch-up iteration 2/2 for Breakout
+[2026-02-23 00:47:24] INFO - HTCL: Consolidating task 3/3 (SpaceInvaders)...
+[2026-02-23 00:47:24] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 1.000000
+[2026-02-23 00:47:24] INFO - HTCL: Catch-up iteration 1/2 for SpaceInvaders
+[2026-02-23 00:47:24] INFO - HTCL: Catch-up iteration 2/2 for SpaceInvaders
+[2026-02-23 00:47:24] INFO - HTCL consolidation complete.
+[2026-02-23 00:47:24] INFO - Consolidated model saved to results/checkpoints/debug/consolidated_htcl.pt

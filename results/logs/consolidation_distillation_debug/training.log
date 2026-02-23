@@ -1,0 +1,48 @@
+[2026-02-23 00:15:43] INFO - Consolidation method: distillation
+[2026-02-23 00:15:43] INFO - Device: mps
+[2026-02-23 00:15:43] INFO - Debug: True
+[2026-02-23 00:15:43] INFO - Loading expert checkpoints and collecting replay data...
+[2026-02-23 00:15:47] INFO - Loaded 3 expert models.
+[2026-02-23 00:15:47] INFO - Starting Knowledge Distillation consolidation...
+[2026-02-23 00:15:47] INFO - Task Pong: Q-value stats mean=0.011, std=0.017
+[2026-02-23 00:15:47] INFO - Task Breakout: Q-value stats mean=0.019, std=0.003
+[2026-02-23 00:15:47] INFO - Task SpaceInvaders: Q-value stats mean=0.037, std=0.010
+[2026-02-23 00:15:47] INFO - Distillation epoch 1/5 | Avg loss: 0.624725
+[2026-02-23 00:15:48] INFO - Distillation epoch 2/5 | Avg loss: 0.365828
+[2026-02-23 00:15:48] INFO - Distillation epoch 3/5 | Avg loss: 0.139107
+[2026-02-23 00:15:48] INFO - Distillation epoch 4/5 | Avg loss: 0.280478
+[2026-02-23 00:15:48] INFO - Distillation epoch 5/5 | Avg loss: 0.693012
+[2026-02-23 00:15:48] INFO - Knowledge Distillation consolidation complete.
+[2026-02-23 00:15:49] INFO - Consolidated model saved to results/checkpoints/debug/consolidated_distillation.pt
+[2026-02-23 00:16:21] INFO - Consolidation method: distillation
+[2026-02-23 00:16:21] INFO - Device: mps
+[2026-02-23 00:16:21] INFO - Debug: True
+[2026-02-23 00:16:21] INFO - Loading expert checkpoints and collecting replay data...
+[2026-02-23 00:16:24] INFO - Loaded 3 expert models.
+[2026-02-23 00:16:24] INFO - Starting Knowledge Distillation consolidation...
+[2026-02-23 00:16:25] INFO - Task Pong: Q-value stats mean=0.011, std=0.017
+[2026-02-23 00:16:25] INFO - Task Breakout: Q-value stats mean=0.019, std=0.003
+[2026-02-23 00:16:25] INFO - Task SpaceInvaders: Q-value stats mean=0.065, std=0.035
+[2026-02-23 00:16:25] INFO - Distillation epoch 1/5 | Avg loss: 0.822698
+[2026-02-23 00:16:25] INFO - Distillation epoch 2/5 | Avg loss: 0.469963
+[2026-02-23 00:16:26] INFO - Distillation epoch 3/5 | Avg loss: 0.505167
+[2026-02-23 00:16:26] INFO - Distillation epoch 4/5 | Avg loss: 0.324966
+[2026-02-23 00:16:26] INFO - Distillation epoch 5/5 | Avg loss: 0.135399
+[2026-02-23 00:16:26] INFO - Knowledge Distillation consolidation complete.
+[2026-02-23 00:16:26] INFO - Consolidated model saved to results/checkpoints/debug/consolidated_distillation.pt
+[2026-02-23 00:47:16] INFO - Consolidation method: distillation
+[2026-02-23 00:47:16] INFO - Device: mps
+[2026-02-23 00:47:16] INFO - Debug: True
+[2026-02-23 00:47:16] INFO - Loading expert checkpoints and collecting replay data...
+[2026-02-23 00:47:19] INFO - Loaded 3 expert models.
+[2026-02-23 00:47:19] INFO - Starting Knowledge Distillation consolidation...
+[2026-02-23 00:47:20] INFO - Task Pong: Q-value stats mean=0.011, std=0.017
+[2026-02-23 00:47:20] INFO - Task Breakout: Q-value stats mean=0.019, std=0.003
+[2026-02-23 00:47:20] INFO - Task SpaceInvaders: Q-value stats mean=0.065, std=0.035
+[2026-02-23 00:47:20] INFO - Distillation epoch 1/5 | Avg loss: 0.822698
+[2026-02-23 00:47:20] INFO - Distillation epoch 2/5 | Avg loss: 0.469963
+[2026-02-23 00:47:20] INFO - Distillation epoch 3/5 | Avg loss: 0.505167
+[2026-02-23 00:47:20] INFO - Distillation epoch 4/5 | Avg loss: 0.324966
+[2026-02-23 00:47:21] INFO - Distillation epoch 5/5 | Avg loss: 0.135399
+[2026-02-23 00:47:21] INFO - Knowledge Distillation consolidation complete.
+[2026-02-23 00:47:21] INFO - Consolidated model saved to results/checkpoints/debug/consolidated_distillation.pt
