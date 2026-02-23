@@ -16,7 +16,8 @@
 #   1. Train expert DQN agents on each Atari task sequentially
 #   2. Consolidate experts using EWC, Distillation, and HTCL
 #   3. Evaluate all models on all tasks
-#   4. Generate comparison plots and summary tables
+#   4. Generate comparison plots and visualizations
+#   5. Generate HTML technical report
 #
 # Usage (interactive):
 #   ./run_all.sh              # Full experiment
@@ -282,10 +283,17 @@ done
 # ── Step 4: Compare and Plot ────────────────────────────────────────────────
 
 log_msg "============================================================"
-log_msg " Step 4/4: Generating Comparison Plots & Visualizations"
+log_msg " Step 4/5: Generating Comparison Plots & Visualizations"
 log_msg "============================================================"
 run_step "04a_compare" python scripts/compare.py ${COMMON_ARGS} ${EVAL_EPISODES}
-run_step "04b_visualize" python scripts/visualize.py ${COMMON_ARGS}
+run_step "04b_visualize" python scripts/visualize.py --tag ${TAG}
+
+# ── Step 5: Generate HTML Report ─────────────────────────────────────────────
+
+log_msg "============================================================"
+log_msg " Step 5/5: Generating HTML Technical Report"
+log_msg "============================================================"
+run_step "05_report" python scripts/generate_report.py --output docs/CRL_Atari_Technical_Report.html
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
@@ -293,6 +301,7 @@ log_msg "============================================================"
 log_msg " Pipeline Complete!"
 log_msg "============================================================"
 log_msg " Results:      results/figures/"
+log_msg " Report:       docs/CRL_Atari_Technical_Report.html"
 log_msg " Checkpoints:  results/checkpoints/${TAG}/"
 log_msg " Logs:         ${LOG_DIR}/"
 log_msg " Master log:   ${MASTER_LOG}"
