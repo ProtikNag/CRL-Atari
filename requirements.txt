@@ -1,0 +1,26 @@
+# Core
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+
+# Atari / Gymnasium
+gymnasium[atari]>=0.29.0
+gymnasium[accept-rom-license]>=0.29.0
+ale-py>=0.8.1
+shimmy[atari]>=1.0.0
+
+# Image processing
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Logging & Config
+pyyaml>=6.0.0
+tensorboard>=2.14.0
+wandb>=0.15.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilities
+tqdm>=4.65.0
