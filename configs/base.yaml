@@ -26,19 +26,21 @@ model:
 
 # --- Training (Expert) ---
 training:
-  total_timesteps: 1_000_000
+  total_timesteps: 2_000_000
   learning_rate: 1.0e-4
   batch_size: 32
   gamma: 0.99
   # Replay buffer
-  buffer_size: 100_000
-  min_buffer_size: 10_000
+  buffer_size: 200_000
+  min_buffer_size: 50_000
   # Exploration
   eps_start: 1.0
   eps_end: 0.01
   eps_decay_steps: 250_000
   # Target network
-  target_update_freq: 1000
+  target_update_freq: 2500
+  # Double DQN (use policy net to select, target net to evaluate)
+  double_dqn: true
   # Training frequency
   train_freq: 4
   gradient_clip: 10.0

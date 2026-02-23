@@ -89,6 +89,7 @@ class DQNAgent:
         self.gamma = train_cfg["gamma"]
         self.batch_size = train_cfg["batch_size"]
         self.target_update_freq = train_cfg["target_update_freq"]
+        self.double_dqn = train_cfg.get("double_dqn", False)
 
         # Step counters
         # env_steps: incremented every environment interaction (for epsilon decay)
@@ -161,14 +162,24 @@ class DQNAgent:
 
         # Target Q-values (only over valid actions)
         with torch.no_grad():
-            next_q_values = self.target_net(next_states)
-            # Mask invalid actions for target
             mask = torch.full(
                 (self.unified_action_dim,), float("-inf"), device=self.device
             )
             mask[self.valid_actions] = 0.0
-            masked_next_q = next_q_values + mask.unsqueeze(0)
-            next_q_max = masked_next_q.max(dim=1)[0]
+
+            if self.double_dqn:
+                # Double DQN: policy net selects action, target net evaluates
+                next_q_policy = self.policy_net(next_states)
+                masked_next_q_policy = next_q_policy + mask.unsqueeze(0)
+                next_actions = masked_next_q_policy.argmax(dim=1, keepdim=True)
+                next_q_target = self.target_net(next_states)
+                next_q_max = next_q_target.gather(1, next_actions).squeeze(1)
+            else:
+                # Standard DQN: target net selects and evaluates
+                next_q_values = self.target_net(next_states)
+                masked_next_q = next_q_values + mask.unsqueeze(0)
+                next_q_max = masked_next_q.max(dim=1)[0]
+
             target = rewards + self.gamma * next_q_max * (1 - dones)
 
         # Update normalizer if enabled
