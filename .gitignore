@@ -88,11 +88,18 @@ Thumbs.db
 results/checkpoints/
 
 # -------------------------
-# Experiment logs (generated at runtime)
+# Experiment logs
 # -------------------------
-results/logs/
+# Ignore generic log files and log directories
 *.log
 logs/
+
+# But TRACK results/logs/ so Hyperion results can be pushed/pulled
+!results/logs/
+!results/logs/**
+
+# Re-ignore TensorBoard event files inside results/logs/ (large binary)
+results/logs/**/events.out.tfevents.*
 
 # -------------------------
 # Weights & Biases / TensorBoard
