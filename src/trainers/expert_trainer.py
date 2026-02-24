@@ -35,6 +35,7 @@ class ExpertTrainer:
         device: str = "cpu",
         global_weights: Optional[dict] = None,
         experiment_tag: str = "",
+        resume_checkpoint: Optional[str] = None,
     ):
         self.config = config
         self.env_id = env_id
@@ -58,8 +59,11 @@ class ExpertTrainer:
             device=device,
         )
 
-        # Initialize from global model if provided (HTCL-style)
-        if global_weights is not None:
+        # Resume from checkpoint if provided (has priority over global_weights)
+        if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
+            logger.info(f"Resuming expert from checkpoint: {resume_checkpoint}")
+            self.agent.load(resume_checkpoint)
+        elif global_weights is not None:
             logger.info("Initializing expert from global model weights.")
             self.agent.load_policy_weights(global_weights)
 
