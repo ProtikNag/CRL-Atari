@@ -1,0 +1,39 @@
+[2026-02-23 22:36:08] INFO - Consolidation method: distillation
+[2026-02-23 22:36:08] INFO - Device: cuda
+[2026-02-23 22:36:08] INFO - Debug: False
+[2026-02-23 22:36:08] INFO - Tag: default
+[2026-02-23 22:36:08] INFO - Config: configs/base.yaml
+[2026-02-23 22:36:08] INFO - Task sequence: ['PongNoFrameskip-v4', 'BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4']
+[2026-02-23 22:36:08] INFO - Distillation config: temperature=2.0, alpha=0.5, epochs=50, lr=5e-05, batch_size=64
+[2026-02-23 22:36:08] INFO - Loading expert checkpoints and collecting replay data...
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-02-23 22:37:05] INFO - Loaded 3 expert models in 57.1s.
+[2026-02-23 22:37:05] INFO -   Pong: best_reward=-0.70, valid_actions=[0, 1, 3, 4, 11, 12], buffer_size=10000
+[2026-02-23 22:37:05] INFO -   Breakout: best_reward=80.90, valid_actions=[0, 1, 3, 4], buffer_size=10000
+[2026-02-23 22:37:05] INFO -   SpaceInvaders: best_reward=762.50, valid_actions=[0, 1, 3, 4, 11, 12], buffer_size=10000
+[2026-02-23 22:37:05] INFO - Initializing global model as parameter average of experts...
+[2026-02-23 22:37:05] INFO - Global model param norm: 43.6936
+[2026-02-23 22:37:05] INFO - Starting Knowledge Distillation consolidation...
+[2026-02-23 22:37:07] INFO - Task Pong: Q-value stats mean=0.290, std=0.153
+[2026-02-23 22:37:08] INFO - Task Breakout: Q-value stats mean=2.604, std=0.528
+[2026-02-23 22:37:08] INFO - Task SpaceInvaders: Q-value stats mean=4.039, std=1.659
+[2026-02-23 22:37:28] INFO - Distillation epoch 5/50 | Avg loss: 0.018229
+[2026-02-23 22:37:48] INFO - Distillation epoch 10/50 | Avg loss: 0.008293
+[2026-02-23 22:38:07] INFO - Distillation epoch 15/50 | Avg loss: 0.005136
+[2026-02-23 22:38:26] INFO - Distillation epoch 20/50 | Avg loss: 0.003499
+[2026-02-23 22:38:46] INFO - Distillation epoch 25/50 | Avg loss: 0.002578
+[2026-02-23 22:39:05] INFO - Distillation epoch 30/50 | Avg loss: 0.001863
+[2026-02-23 22:39:25] INFO - Distillation epoch 35/50 | Avg loss: 0.001594
+[2026-02-23 22:39:44] INFO - Distillation epoch 40/50 | Avg loss: 0.001237
+[2026-02-23 22:40:03] INFO - Distillation epoch 45/50 | Avg loss: 0.001034
+[2026-02-23 22:40:23] INFO - Distillation epoch 50/50 | Avg loss: 0.000838
+[2026-02-23 22:40:23] INFO - Knowledge Distillation consolidation complete.
+[2026-02-23 22:40:23] INFO - Consolidated model param norm: 45.9556 (delta: +2.2620)
+[2026-02-23 22:40:23] INFO -   Weight drift [features]: 7.353489
+[2026-02-23 22:40:23] INFO -   Weight drift [fc]: 16.432334
+[2026-02-23 22:40:23] INFO - Consolidated model saved to results/checkpoints/default/consolidated_distillation.pt
+[2026-02-23 22:40:23] INFO - Total consolidation time (distillation): 255.0s
+Collecting 10000 replay samples for Pong...
+Collecting 10000 replay samples for Breakout...
+Collecting 10000 replay samples for SpaceInvaders...

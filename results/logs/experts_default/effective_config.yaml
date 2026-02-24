@@ -1,0 +1,99 @@
+seed: 42
+task_sequence:
+- PongNoFrameskip-v4
+- BreakoutNoFrameskip-v4
+- SpaceInvadersNoFrameskip-v4
+model:
+  conv_channels:
+  - 32
+  - 64
+  - 64
+  conv_kernels:
+  - 8
+  - 4
+  - 3
+  conv_strides:
+  - 4
+  - 2
+  - 1
+  fc_hidden: 512
+  unified_action_dim: 18
+  dueling: false
+training:
+  total_timesteps: 1000000
+  learning_rate: 0.0001
+  batch_size: 32
+  gamma: 0.99
+  buffer_size: 100000
+  min_buffer_size: 10000
+  eps_start: 1.0
+  eps_end: 0.01
+  eps_decay_steps: 250000
+  target_update_freq: 1000
+  train_freq: 4
+  gradient_clip: 10.0
+  save_freq: 50000
+  eval_freq: 10000
+  eval_episodes: 10
+normalization:
+  enabled: true
+  method: running_stats
+  momentum: 0.01
+  clip_range: 10.0
+env:
+  frame_stack: 4
+  frame_skip: 4
+  screen_size: 84
+  noop_max: 30
+  episodic_life: true
+  clip_reward: true
+  grayscale: true
+consolidation:
+  init_from_global: true
+ewc:
+  lambda_ewc: 5000.0
+  fisher_samples: 2000
+  online: true
+  gamma_ewc: 0.95
+distillation:
+  temperature: 2.0
+  alpha: 0.5
+  distill_epochs: 50
+  distill_lr: 5.0e-05
+  distill_batch_size: 64
+  buffer_size_per_task: 10000
+htcl:
+  hierarchy_levels: 2
+  group_size: 2
+  lambda_htcl: 1.0
+  lambda_auto: true
+  lambda_margin: 0.1
+  fisher_samples: 2000
+  catch_up_iterations: 2
+  eta: 0.9
+  diagonal_fisher: true
+evaluation:
+  episodes: 30
+  deterministic: true
+  render: false
+  record_video: false
+logging:
+  log_dir: results/logs
+  checkpoint_dir: results/checkpoints
+  figure_dir: results/figures
+  use_tensorboard: true
+  use_wandb: false
+  wandb_project: crl-atari
+  wandb_entity: null
+  log_interval: 1000
+debug:
+  enabled: false
+  total_timesteps: 5000
+  buffer_size: 1000
+  min_buffer_size: 500
+  eval_episodes: 2
+  eval_freq: 1000
+  save_freq: 2500
+  fisher_samples: 100
+  distill_epochs: 5
+  distill_buffer_size: 500

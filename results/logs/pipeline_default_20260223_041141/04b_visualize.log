@@ -1,0 +1,23 @@
+CRL-Atari Visualization Generator
+  PNG: results/figures/png  |  SVG: results/figures/svg
+  JSON: results/figures/comparison_results_default.json
+
+Methods: ['Expert', 'EWC', 'Distillation', 'HTCL']
+Games  : ['Pong', 'Breakout', 'SpaceInvaders']
+
+Generating plots...
+  Saved: 01_grouped_bar_comparison.png / 01_grouped_bar_comparison.svg
+  Saved: 02_performance_heatmap.png / 02_performance_heatmap.svg
+  Saved: 03_radar_chart.png / 03_radar_chart.svg
+Traceback (most recent call last):
+  File "/work/pnag/CRL-Atari/scripts/visualize.py", line 741, in <module>
+    main()
+  File "/work/pnag/CRL-Atari/scripts/visualize.py", line 729, in main
+    plot_box_plots(results, methods, games, png_dir, svg_dir)
+  File "/work/pnag/CRL-Atari/scripts/visualize.py", line 314, in plot_box_plots
+    bp = ax.boxplot(
+         ^^^^^^^^^^^
+  File "/work/apps/python3/anaconda/2023.9/lib/python3.11/site-packages/matplotlib/__init__.py", line 1465, in inner
+    return func(ax, *map(sanitize_sequence, args), **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Axes.boxplot() got an unexpected keyword argument 'tick_labels'
