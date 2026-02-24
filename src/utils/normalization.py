@@ -98,8 +98,8 @@ class RunningNormalizer:
         }
 
     def load_state_dict(self, state: dict) -> None:
-        self.running_mean = state["running_mean"]
-        self.running_var = state["running_var"]
+        self.running_mean = state["running_mean"].cpu()
+        self.running_var = state["running_var"].cpu()
         self.count = state["count"]
 
 
