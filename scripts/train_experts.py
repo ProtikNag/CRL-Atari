@@ -12,6 +12,7 @@ import argparse
 import os
 import sys
 import json
+import glob
 import torch
 import subprocess
 
@@ -112,13 +113,23 @@ def main():
 
     # Train experts sequentially
     all_results = []
+    checkpoint_dir = config["logging"]["checkpoint_dir"]
     for task_idx, env_id in enumerate(config["task_sequence"]):
+        game_name = env_id.replace("NoFrameskip-v4", "")
         logger.info(f"\n{'='*60}")
         logger.info(f"Training Expert {task_idx + 1}/{len(config['task_sequence'])}: {env_id}")
         logger.info(f"{'='*60}")
 
-        # Initialize expert from global state
-        expert_init_weights = global_weights if init_from_global else None
+        # Check for existing best checkpoint to resume from
+        best_ckpt_path = os.path.join(
+            checkpoint_dir, args.tag, f"expert_{game_name}_best.pt"
+        )
+        resume_ckpt = best_ckpt_path if os.path.exists(best_ckpt_path) else None
+        if resume_ckpt:
+            logger.info(f"Found existing best checkpoint: {resume_ckpt}")
+
+        # Initialize expert from global state (only if not resuming)
+        expert_init_weights = global_weights if (init_from_global and resume_ckpt is None) else None
 
         trainer = ExpertTrainer(
             config=config,
@@ -127,10 +138,28 @@ def main():
             device=device,
             global_weights=expert_init_weights,
             experiment_tag=args.tag,
+            resume_checkpoint=resume_ckpt,
         )
 
         result = trainer.train()
         all_results.append(result)
+
+        # Clean up: remove step checkpoints and final checkpoint, keep only best
+        step_ckpts = glob.glob(
+            os.path.join(checkpoint_dir, args.tag, f"expert_{game_name}_step*.pt")
+        )
+        final_ckpt = os.path.join(
+            checkpoint_dir, args.tag, f"expert_{game_name}_final.pt"
+        )
+        removed_count = 0
+        for ckpt in step_ckpts:
+            os.remove(ckpt)
+            removed_count += 1
+        if os.path.exists(final_ckpt):
+            os.remove(final_ckpt)
+            removed_count += 1
+        if removed_count > 0:
+            logger.info(f"Cleaned up {removed_count} intermediate checkpoints for {game_name}.")
 
         # Update global weights to the average of all experts so far
         # (simple baseline; HTCL/EWC will do better consolidation)

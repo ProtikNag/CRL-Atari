@@ -118,16 +118,22 @@ class HTCLConsolidator:
             mask[valid_actions] = 0.0
             masked_q = q_values + mask.unsqueeze(0)
 
-            # Log-softmax over valid actions
-            log_probs = F.log_softmax(masked_q, dim=1)
-            actions = masked_q.argmax(dim=1)
-            selected_log_probs = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
-            loss = selected_log_probs.mean()
-            loss.backward()
+            # Sample actions from softmax policy (not argmax) for proper
+            # empirical Fisher. Argmax yields near-zero gradients when one
+            # Q-value dominates, causing Fisher diagonal entries to be 0.
+            probs = F.softmax(masked_q, dim=1)
+            sampled_actions = torch.multinomial(probs, num_samples=1).squeeze(1)
 
-            for name, param in model.named_parameters():
-                if param.requires_grad and param.grad is not None:
-                    fisher[name] += (param.grad.data ** 2) * (len(batch) / num_samples)
+            log_probs = F.log_softmax(masked_q, dim=1)
+            selected_log_probs = log_probs.gather(1, sampled_actions.unsqueeze(1)).squeeze(1)
+
+            # Compute Fisher per sample to avoid gradient cancellation
+            for j in range(len(batch)):
+                model.zero_grad()
+                selected_log_probs[j].backward(retain_graph=(j < len(batch) - 1))
+                for name, param in model.named_parameters():
+                    if param.requires_grad and param.grad is not None:
+                        fisher[name] += (param.grad.data ** 2) / num_samples
 
         model.train()
         return fisher
