@@ -26,7 +26,7 @@ model:
 
 # --- Training (Expert) ---
 training:
-  total_timesteps: 2_000_000
+  total_timesteps: 1_500_000
   learning_rate: 1.0e-4
   batch_size: 32
   gamma: 0.99

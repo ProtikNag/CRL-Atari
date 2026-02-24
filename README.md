@@ -33,7 +33,7 @@ CRL-Atari/
 │   ├── models/
 │   │   └── dqn.py             # DQN with unified 18-action head
 │   ├── agents/
-│   │   └── dqn_agent.py       # Agent: epsilon-greedy, action masking, training step
+│   │   └── dqn_agent.py       # Agent: epsilon-greedy, action masking, Double DQN
 │   ├── data/
 │   │   ├── replay_buffer.py   # Circular replay buffer (uint8 storage)
 │   │   └── atari_wrappers.py  # DeepMind-style Atari preprocessing
@@ -42,7 +42,7 @@ CRL-Atari/
 │   │   ├── distillation.py    # Knowledge Distillation (temperature-scaled)
 │   │   └── htcl.py            # Hierarchical Taylor-based Continual Learning
 │   ├── trainers/
-│   │   └── expert_trainer.py  # Full training loop for one expert
+│   │   └── expert_trainer.py  # Training loop + inline reward curve generation
 │   └── utils/
 │       ├── config.py          # YAML config loading + debug mode
 │       ├── seed.py            # Reproducibility (all RNG seeds)
@@ -52,15 +52,17 @@ CRL-Atari/
 │   ├── train_experts.py       # Train expert DQN per task (sequential)
 │   ├── consolidate.py         # Merge experts via EWC / Distillation / HTCL
 │   ├── evaluate.py            # Evaluate any model on any task
-│   └── compare.py             # Side-by-side comparison + plots
+│   ├── compare.py             # Side-by-side comparison + plots
+│   ├── visualize.py           # Additional visualization utilities
+│   ├── generate_report.py     # Generate HTML technical report
+│   └── play.py                # Watch a trained agent play (pygame GUI)
 ├── main.py                    # Debug-friendly entry point (runs locally)
-├── run_all.sh                 # Full experiment pipeline in one command
-├── configs/base.yaml          # All hyperparameters
+├── run_all.sh                 # Full experiment pipeline (SLURM-compatible)
 ├── requirements.txt
 ├── results/
 │   ├── logs/                  # TensorBoard + CSV logs
-│   ├── checkpoints/           # Model checkpoints
-│   └── figures/               # Comparison plots (PNG + SVG)
+│   ├── checkpoints/           # Model checkpoints (best per expert)
+│   └── figures/               # Reward curves and comparison plots (PNG + SVG)
 └── notebooks/                 # Analysis only
 ```
 
@@ -92,6 +94,8 @@ pip install gymnasium[accept-rom-license]
 # Custom tag and device
 ./run_all.sh --tag experiment_v1 --device cuda
 ```
+
+The pipeline trains each expert for **1.5M environment steps** (configurable in `configs/base.yaml`). Reward curves are automatically generated during training and saved to `results/figures/`.
 
 ### 3. Debug Locally (No Shell Script)
 
@@ -130,6 +134,34 @@ python scripts/evaluate.py --model-path results/checkpoints/myexp/consolidated_h
 python scripts/compare.py --debug --tag myexp
 ```
 
+### 5. Watch an Agent Play
+
+```bash
+# Watch the best Pong expert play
+python scripts/play.py --game Pong
+
+# Watch with faster playback
+python scripts/play.py --game Breakout --speed 2
+
+# Watch a consolidated model play
+python scripts/play.py --game SpaceInvaders --model-path results/checkpoints/default/consolidated_htcl.pt
+
+# List available games and checkpoints
+python scripts/play.py --list-games
+```
+
+**Controls**: `Q`/`ESC` quit, `R` restart, `P`/`Space` pause, `+`/`-` speed.
+
+## Training & Visualization
+
+Expert training automatically generates reward curves at the end of each expert's training run. Both per-game and combined multi-panel figures are saved in `results/figures/{png,svg}/`.
+
+Generated figures:
+- `expert_{Game}_reward_curve.{png,svg}` — per-game curve with raw + smoothed rewards and best-point marker
+- `expert_all_reward_curves.{png,svg}` — combined side-by-side panel for all games
+
+Training also resumes from the best checkpoint if one exists, so re-running `run_all.sh` continues from where you left off.
+
 ## Consolidation Methods
 
 ### 1. EWC (Elastic Weight Consolidation)
@@ -161,7 +193,7 @@ $$\mathbf{w}^{(t)} = \mathbf{w}^{(t-1)} + (\mathbf{H} + \lambda \mathbf{I})^{-1}
 **Lambda constraint**: $\lambda > -\mu_{\min}(\mathbf{H})$ ensures the surrogate objective is strictly convex. With `lambda_auto: true`, this is enforced automatically.
 
 **Key hyperparameters**:
-- `lambda_htcl`: Base lambda value (default: 1.0)
+- `lambda_htcl`: Base lambda value (default: 100000)
 - `lambda_auto`: Auto-adjust to satisfy constraint (default: true)
 - `catch_up_iterations`: Refinement iterations after each merge (default: 2)
 - `diagonal_fisher`: Use diagonal Fisher for Hessian approximation (default: true)
@@ -184,23 +216,27 @@ All hyperparameters live in [`configs/base.yaml`](configs/base.yaml). The config
 | `normalization` | Q-value normalization settings |
 | `consolidation` | Global-to-local initialization flag |
 | `ewc`, `distillation`, `htcl` | Method-specific hyperparameters |
+| `evaluation` | Eval episodes, deterministic flag |
+| `logging` | Log/checkpoint/figure directories, TensorBoard |
 | `debug` | Reduced values for fast local testing |
 
 ## DQN Architecture
 
 ```
 Input: (batch, 4, 84, 84)  [4 stacked grayscale frames]
-  └─ Conv2d(4→64, 8x8, stride 4) + ReLU
-  └─ Conv2d(64→128, 4x4, stride 2) + ReLU
-  └─ Conv2d(128→128, 3x3, stride 1) + ReLU
+  └─ Conv2d(4→32, 8×8, stride 4) + ReLU
+  └─ Conv2d(32→64, 4×4, stride 2) + ReLU
+  └─ Conv2d(64→64, 3×3, stride 1) + ReLU
   └─ Flatten
-  └─ Linear(→1024) + ReLU
-  └─ Linear(1024→18)  [unified action head]
+  └─ Linear(→512) + ReLU
+  └─ Linear(512→18)  [unified action head]
 ```
 
-**Parameter count**: ~1.7M (sufficient for 3+ games).
+**Parameter count**: ~1.7M (Nature DQN architecture).
 
 The unified 18-action output covers all possible Atari joystick positions. Per-game action masking sets invalid actions' Q-values to $-\infty$ during action selection and training.
+
+**Double DQN** is enabled by default — the policy network selects actions while the target network evaluates them, reducing overestimation bias.
 
 ## Outputs
 
@@ -212,8 +248,10 @@ After a full run, you'll find:
 | `results/checkpoints/<tag>/consolidated_ewc.pt` | EWC-merged model |
 | `results/checkpoints/<tag>/consolidated_distillation.pt` | Distillation-merged model |
 | `results/checkpoints/<tag>/consolidated_htcl.pt` | HTCL-merged model |
-| `results/figures/comparison_bar.{png,svg}` | Bar chart: expert vs. consolidated |
-| `results/figures/performance_heatmap.{png,svg}` | Heatmap: method x game |
+| `results/figures/png/expert_*_reward_curve.png` | Per-game training reward curves |
+| `results/figures/png/expert_all_reward_curves.png` | Combined multi-panel reward curves |
+| `results/figures/png/comparison_bar.png` | Bar chart: expert vs. consolidated |
+| `results/figures/png/performance_heatmap.png` | Heatmap: method × game |
 | `results/figures/comparison_results_<tag>.json` | Raw numerical results |
 | `results/logs/` | TensorBoard events + CSV metrics |
 
@@ -238,3 +276,4 @@ Options:
 - Hinton et al., "Distilling the knowledge in a neural network", 2015 (Knowledge Distillation)
 - Nag, Raghavan, Narayanan, "Mitigating Task-Order Sensitivity and Forgetting via Hierarchical Second-Order Consolidation", 2026 (HTCL)
 - Mnih et al., "Human-level control through deep reinforcement learning", Nature 2015 (DQN)
+- van Hasselt et al., "Deep Reinforcement Learning with Double Q-learning", AAAI 2016 (Double DQN)
