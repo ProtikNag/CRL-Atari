@@ -16,7 +16,6 @@ Pillow>=10.0.0
 # Logging & Config
 pyyaml>=6.0.0
 tensorboard>=2.14.0
-wandb>=0.15.0
 
 # Visualization
 matplotlib>=3.7.0

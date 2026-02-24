@@ -8,11 +8,75 @@ import os
 import time
 import numpy as np
 import torch
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 from src.agents.dqn_agent import DQNAgent
 from src.data.atari_wrappers import make_atari_env, get_valid_actions
 from src.utils.logger import Logger
+
+# ── Visualization palette ─────────────────────────────────────────────────────
+
+_PALETTE = {
+    "pastel_blue": "#A8D8EA",
+    "pastel_orange": "#FFD8B1",
+    "pastel_green": "#B5EAD7",
+}
+_EDGE_COLOR = "#1a1a1a"
+_GAME_STYLE = {
+    "Pong":          {"color": _PALETTE["pastel_blue"],   "marker": "o"},
+    "Breakout":      {"color": _PALETTE["pastel_orange"], "marker": "s"},
+    "SpaceInvaders": {"color": _PALETTE["pastel_green"],  "marker": "^"},
+}
+
+
+def _setup_mpl_style() -> None:
+    """Apply publication-quality matplotlib style."""
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "DejaVu Serif"],
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 12,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "axes.edgecolor": _EDGE_COLOR,
+        "axes.linewidth": 1.2,
+        "axes.facecolor": "#FAFAFA",
+        "axes.grid": True,
+        "axes.axisbelow": True,
+        "grid.color": "#E0E0E0",
+        "grid.linewidth": 0.6,
+        "grid.alpha": 0.7,
+        "figure.facecolor": "white",
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+        "savefig.facecolor": "white",
+        "legend.frameon": True,
+        "legend.edgecolor": _EDGE_COLOR,
+        "legend.fancybox": False,
+        "legend.framealpha": 0.9,
+        "xtick.direction": "out",
+        "ytick.direction": "out",
+        "xtick.major.width": 1.0,
+        "ytick.major.width": 1.0,
+    })
+
+
+def _smooth(values: np.ndarray, window: int = 5) -> np.ndarray:
+    """Simple moving-average smoothing."""
+    if window <= 1 or len(values) < window:
+        return values
+    kernel = np.ones(window) / window
+    padded = np.concatenate([
+        np.full(window // 2, values[0]),
+        values,
+        np.full(window // 2, values[-1]),
+    ])
+    return np.convolve(padded, kernel, mode="valid")[:len(values)]
 
 
 class ExpertTrainer:
@@ -58,6 +122,10 @@ class ExpertTrainer:
             valid_actions=self.valid_actions,
             device=device,
         )
+
+        # Collect eval rewards for live reward curve plotting
+        self.eval_steps: List[int] = []
+        self.eval_rewards: List[float] = []
 
         # Resume from checkpoint if provided (has priority over global_weights)
         if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
@@ -155,6 +223,8 @@ class ExpertTrainer:
             # Evaluate
             if step % eval_freq == 0:
                 eval_reward = self.evaluate(eval_episodes)
+                self.eval_steps.append(step)
+                self.eval_rewards.append(eval_reward)
                 self.logger.log_scalar(
                     f"{self.game_name}/eval_reward", eval_reward, step
                 )
@@ -197,9 +267,15 @@ class ExpertTrainer:
             f"Final eval: {final_eval:.2f} | Best eval: {best_eval_reward:.2f}"
         )
 
+        # Generate reward curve
+        figure_dir = self.config["logging"].get("figure_dir", "results/figures")
+        self._save_reward_curve(figure_dir)
+
         result = {
             "final_reward": final_eval,
             "best_reward": best_eval_reward,
+            "eval_steps": self.eval_steps,
+            "eval_rewards": self.eval_rewards,
             "policy_state_dict": self.agent.get_policy_state_dict(),
             "valid_actions": self.valid_actions,
             "replay_buffer": self.agent.replay_buffer,
@@ -246,3 +322,155 @@ class ExpertTrainer:
 
         eval_env.close()
         return float(np.mean(rewards))
+
+    # ── Reward curve plotting ─────────────────────────────────────────────────
+
+    def _save_reward_curve(self, figure_dir: str, smooth_window: int = 5) -> None:
+        """Save a reward curve figure for this expert (PNG + SVG)."""
+        if len(self.eval_steps) < 2:
+            return
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")  # non-interactive backend
+            import matplotlib.pyplot as plt
+        except ImportError:
+            self.logger.info("matplotlib not available, skipping reward curve.")
+            return
+
+        _setup_mpl_style()
+
+        steps = np.array(self.eval_steps)
+        rewards = np.array(self.eval_rewards)
+        smoothed = _smooth(rewards, smooth_window)
+        best_idx = int(np.argmax(rewards))
+
+        style = _GAME_STYLE.get(
+            self.game_name, {"color": "#A8D8EA", "marker": "o"}
+        )
+
+        fig, ax = plt.subplots(figsize=(7, 4.5), constrained_layout=True)
+
+        # Raw data (faded)
+        ax.plot(
+            steps, rewards,
+            color=style["color"], alpha=0.3, linewidth=0.8,
+            label="Raw",
+        )
+        # Smoothed curve
+        ax.plot(
+            steps, smoothed,
+            color=style["color"], marker=style["marker"],
+            markeredgecolor=_EDGE_COLOR, markeredgewidth=0.8,
+            markersize=4, linewidth=2.0,
+            markevery=max(1, len(steps) // 15),
+            label=f"Smoothed (w={smooth_window})",
+        )
+        # Best point
+        ax.plot(
+            steps[best_idx], rewards[best_idx],
+            marker="*", color="#FF4444", markersize=14,
+            markeredgecolor=_EDGE_COLOR, markeredgewidth=1.0,
+            zorder=10, label=f"Best: {rewards[best_idx]:.1f}",
+        )
+
+        ax.set_xlabel("Environment Steps")
+        ax.set_ylabel("Mean Evaluation Reward")
+        ax.set_title(f"{self.game_name} Expert \u2014 Training Reward Curve")
+        ax.legend(loc="best")
+        ax.xaxis.set_major_formatter(
+            plt.FuncFormatter(
+                lambda x, _: f"{x/1e6:.1f}M" if x >= 1e6 else f"{x/1e3:.0f}k"
+            )
+        )
+
+        for fmt in ("png", "svg"):
+            out_dir = os.path.join(figure_dir, fmt)
+            os.makedirs(out_dir, exist_ok=True)
+            fig.savefig(
+                os.path.join(out_dir, f"expert_{self.game_name}_reward_curve.{fmt}"),
+                dpi=300, bbox_inches="tight", facecolor="white",
+            )
+        plt.close(fig)
+        self.logger.info(
+            f"[{self.game_name}] Reward curve saved to {figure_dir}/{{png,svg}}/"
+        )
+
+    @staticmethod
+    def save_combined_reward_curves(
+        all_results: List[Dict[str, Any]],
+        figure_dir: str,
+        smooth_window: int = 5,
+    ) -> None:
+        """Generate a combined multi-panel reward curve for all experts.
+
+        Call this after all experts have been trained, passing the list of
+        result dicts returned by each ExpertTrainer.train().
+        """
+        results_with_data = [
+            r for r in all_results
+            if len(r.get("eval_steps", [])) >= 2
+        ]
+        if not results_with_data:
+            return
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+        except ImportError:
+            return
+
+        _setup_mpl_style()
+
+        n = len(results_with_data)
+        fig, axes = plt.subplots(
+            1, n, figsize=(5.5 * n, 4.5), constrained_layout=True,
+        )
+        if n == 1:
+            axes = [axes]
+
+        for ax, r in zip(axes, results_with_data):
+            game = r["game_name"]
+            steps = np.array(r["eval_steps"])
+            rewards = np.array(r["eval_rewards"])
+            smoothed = _smooth(rewards, smooth_window)
+            best_idx = int(np.argmax(rewards))
+            style = _GAME_STYLE.get(game, {"color": "#A8D8EA", "marker": "o"})
+
+            ax.plot(steps, rewards, color=style["color"], alpha=0.3, linewidth=0.8)
+            ax.plot(
+                steps, smoothed,
+                color=style["color"], marker=style["marker"],
+                markeredgecolor=_EDGE_COLOR, markeredgewidth=0.8,
+                markersize=4, linewidth=2.0,
+                markevery=max(1, len(steps) // 12),
+            )
+            ax.plot(
+                steps[best_idx], rewards[best_idx],
+                marker="*", color="#FF4444", markersize=14,
+                markeredgecolor=_EDGE_COLOR, markeredgewidth=1.0,
+                zorder=10,
+            )
+            ax.set_xlabel("Environment Steps")
+            ax.set_ylabel("Mean Eval Reward")
+            ax.set_title(f"{game} (Best: {rewards[best_idx]:.1f})")
+            ax.xaxis.set_major_formatter(
+                plt.FuncFormatter(
+                    lambda x, _: f"{x/1e6:.1f}M" if x >= 1e6 else f"{x/1e3:.0f}k"
+                )
+            )
+
+        fig.suptitle(
+            "Expert DQN Training \u2014 Evaluation Reward Curves",
+            fontsize=14, fontweight="bold", y=1.02,
+        )
+
+        for fmt in ("png", "svg"):
+            out_dir = os.path.join(figure_dir, fmt)
+            os.makedirs(out_dir, exist_ok=True)
+            fig.savefig(
+                os.path.join(out_dir, f"expert_all_reward_curves.{fmt}"),
+                dpi=300, bbox_inches="tight", facecolor="white",
+            )
+        plt.close(fig)

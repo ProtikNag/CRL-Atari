@@ -193,6 +193,12 @@ def main():
             for r in all_results
         ],
     }
+
+    # Generate combined reward curves for all experts
+    figure_dir = config["logging"].get("figure_dir", "results/figures")
+    ExpertTrainer.save_combined_reward_curves(all_results, figure_dir)
+    logger.info(f"Combined reward curves saved to {figure_dir}/")
+
     summary_path = os.path.join(
         config["logging"]["checkpoint_dir"], args.tag, "expert_summary.json"
     )
