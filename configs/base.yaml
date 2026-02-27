@@ -6,8 +6,9 @@
 seed: 42
 
 # --- Task Sequence ---
-# Full Atari unified action space has 18 actions
-# Each game uses a subset; network outputs all 18
+# Union action space is computed at runtime from the minimal action sets
+# of all games below. For {Pong, Breakout, SpaceInvaders} the union is
+# [NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE] = 6 actions.
 task_sequence:
   - PongNoFrameskip-v4
   - BreakoutNoFrameskip-v4
@@ -21,12 +22,13 @@ model:
   conv_strides: [4, 2, 1]
   # Fully connected head
   fc_hidden: 512
-  unified_action_dim: 18  # Full Atari action space
+  # unified_action_dim is computed at runtime from the union of all games'
+  # minimal action sets. Do NOT hardcode it here.
   dueling: false
 
 # --- Training (Expert) ---
 training:
-  total_timesteps: 1_500_000
+  total_timesteps: 1_000_000
   learning_rate: 1.0e-4
   batch_size: 32
   gamma: 0.99
@@ -49,18 +51,21 @@ training:
   eval_freq: 50_000
   eval_episodes: 5
 
-# --- Q-Value Normalization (PopArt-style) ---
+# --- Q-Value Normalization (PopArt) ---
+# PopArt rescales the output layer weights when running target statistics
+# change, preserving un-normalized predictions during training.
 normalization:
   enabled: true
-  method: "running_stats"  # "running_stats" | "popart"
+  method: "popart"
   momentum: 0.01
-  clip_range: 10.0
 
 # --- Atari Environment Wrappers ---
 env:
   frame_stack: 4
   frame_skip: 4
   screen_size: 84
+  # noop_max: number of random NOOPs on reset. 30 is the DeepMind standard,
+  # providing sufficient initial-state diversity without wasting frames.
   noop_max: 30
   episodic_life: true
   clip_reward: true
@@ -68,7 +73,7 @@ env:
 
 # --- Consolidation (shared) ---
 consolidation:
-  init_from_global: true  # Initialize local models from global state
+  # Each expert starts from random initialization (no global-to-local init).
 
 # --- EWC ---
 ewc:
@@ -94,7 +99,7 @@ htcl:
   lambda_auto: true  # Auto-adjust lambda to satisfy constraint
   lambda_margin: 0.1  # Safety margin above -mu_min(H)
   fisher_samples: 2000
-  catch_up_iterations: 2
+  catch_up_iterations: 10
   eta: 0.9  # Taylor update step size
   diagonal_fisher: true
 
