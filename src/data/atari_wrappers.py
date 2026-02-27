@@ -248,10 +248,11 @@ class FrameStack(gym.Wrapper):
         super().__init__(env)
         self.k = k
         self.frames = deque([], maxlen=k)
-        shape = env.observation_space.shape
+        shape = env.observation_space.shape  # (H, W, 1) from WarpFrame
+        # Output as channels-first: (k, H, W) for CNN and replay buffer
         self.observation_space = gym.spaces.Box(
             low=0, high=255,
-            shape=(shape[0], shape[1], shape[2] * k),
+            shape=(k, shape[0], shape[1]),
             dtype=np.uint8,
         )
 
@@ -267,7 +268,9 @@ class FrameStack(gym.Wrapper):
         return self._get_obs(), reward, terminated, truncated, info
 
     def _get_obs(self):
-        return np.concatenate(list(self.frames), axis=2)
+        # Concatenate along last axis then transpose to channels-first (k, H, W)
+        stacked = np.concatenate(list(self.frames), axis=2)  # (H, W, k)
+        return np.transpose(stacked, (2, 0, 1))  # (k, H, W)
 
 
 class ClipRewardEnv(gym.RewardWrapper):
