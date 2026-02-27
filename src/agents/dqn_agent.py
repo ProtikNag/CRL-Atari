@@ -77,6 +77,7 @@ class DQNAgent:
         if norm_cfg.get("enabled", False):
             self.normalizer = PopArtNormalizer(
                 output_layer=self.policy_net.output_layer,
+                target_output_layer=self.target_net.output_layer,
                 momentum=norm_cfg.get("momentum", 0.01),
             )
 
@@ -187,9 +188,9 @@ class DQNAgent:
 
             target = rewards + self.gamma * next_q_max * (1 - dones)
 
-        # PopArt: normalize targets, rescale output layer
+        # PopArt: normalize targets, rescale both output layers, correct q_taken
         if self.normalizer is not None:
-            target = self.normalizer.normalize_targets(target)
+            target, q_taken = self.normalizer.normalize_targets(target, q_taken=q_taken)
 
         # Huber loss (smooth L1)
         loss = nn.functional.smooth_l1_loss(q_taken, target)
