@@ -36,6 +36,7 @@ def run_train_experts(config: dict, device: str, tag: str) -> None:
     """Train expert agents on all tasks."""
     from src.models.dqn import DQNNetwork
     from src.trainers.expert_trainer import ExpertTrainer
+    from src.data.atari_wrappers import compute_union_action_space
     import json
 
     logger = setup_logger(
@@ -43,6 +44,11 @@ def run_train_experts(config: dict, device: str, tag: str) -> None:
         experiment_name=f"experts_{tag}",
         use_tensorboard=config["logging"]["use_tensorboard"],
     )
+
+    # Compute union action space
+    union_actions = compute_union_action_space(config["task_sequence"])
+    config["model"]["unified_action_dim"] = len(union_actions)
+    logger.info(f"Union action space: {union_actions} ({len(union_actions)} actions)")
 
     model_cfg = config["model"]
     global_model = DQNNetwork(
@@ -58,9 +64,8 @@ def run_train_experts(config: dict, device: str, tag: str) -> None:
     logger.info(f"Device: {device}")
     logger.info(f"Model parameters: {global_model.num_parameters:,}")
     logger.info(f"Debug: {config['debug']['enabled']}")
+    del global_model  # Not used further — each expert starts from random init
 
-    init_from_global = config["consolidation"].get("init_from_global", True)
-    global_weights = global_model.state_dict()
     all_results = []
 
     for task_idx, env_id in enumerate(config["task_sequence"]):
@@ -70,27 +75,17 @@ def run_train_experts(config: dict, device: str, tag: str) -> None:
         )
         logger.info(f"{'='*60}")
 
-        expert_init_weights = global_weights if init_from_global else None
-
         trainer = ExpertTrainer(
             config=config,
             env_id=env_id,
+            union_actions=union_actions,
             logger=logger,
             device=device,
-            global_weights=expert_init_weights,
             experiment_tag=tag,
         )
 
         result = trainer.train()
         all_results.append(result)
-
-        if init_from_global:
-            avg_sd = {}
-            for key in global_weights:
-                avg_sd[key] = torch.stack(
-                    [r["policy_state_dict"][key].float() for r in all_results]
-                ).mean(dim=0)
-            global_weights = avg_sd
 
         logger.info(
             f"Expert {task_idx + 1}: {result['game_name']} | "

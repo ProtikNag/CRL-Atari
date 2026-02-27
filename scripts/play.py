@@ -28,7 +28,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.dqn import DQNNetwork
-from src.data.atari_wrappers import get_valid_actions
+from src.data.atari_wrappers import get_valid_actions, compute_union_action_space
 from src.utils.config import get_effective_config
 
 # Lazy import: gymnasium and pygame loaded after arg parsing
@@ -78,7 +78,6 @@ def find_best_checkpoint(game_name: str, tag: str, checkpoint_dir: str) -> str:
     short_name = game_name.replace("NoFrameskip-v4", "")
     candidates = [
         os.path.join(checkpoint_dir, tag, f"expert_{short_name}_best.pt"),
-        os.path.join(checkpoint_dir, tag, f"expert_{short_name}_final.pt"),
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -109,12 +108,13 @@ def make_render_env(env_id: str, seed: int = 42) -> gym.Env:
     return env
 
 
-def make_agent_env(env_id: str, config: dict) -> gym.Env:
+def make_agent_env(env_id: str, config: dict, union_actions: list) -> gym.Env:
     """Create the wrapped env for agent observation (same as training, no clip_reward)."""
     from src.data.atari_wrappers import make_atari_env
     env_cfg = config["env"]
     return make_atari_env(
         env_id=env_id,
+        union_actions=union_actions,
         seed=config["seed"],
         frame_stack=env_cfg["frame_stack"],
         frame_skip=env_cfg["frame_skip"],
@@ -202,6 +202,11 @@ def main():
     game_short = env_id.replace("NoFrameskip-v4", "")
     print(f"Game: {game_short} ({env_id})")
 
+    # Compute union action space
+    union_actions = compute_union_action_space(config["task_sequence"])
+    config["model"]["unified_action_dim"] = len(union_actions)
+    print(f"Union action space: {union_actions} ({len(union_actions)} actions)")
+
     # Device
     if args.device:
         device = args.device
@@ -230,8 +235,8 @@ def main():
         model.load_state_dict(checkpoint)
     model.eval()
 
-    valid_actions = get_valid_actions(env_id)
-    print(f"Valid actions: {valid_actions}")
+    valid_actions = get_valid_actions(env_id, union_actions)
+    print(f"Valid actions (union indices): {valid_actions}")
 
     # ── Import pygame ─────────────────────────────────────────────────────
     try:
@@ -245,7 +250,7 @@ def main():
     # Raw env for RGB rendering
     render_env = make_render_env(env_id, seed=config["seed"])
     # Wrapped env for agent observations
-    agent_env = make_agent_env(env_id, config)
+    agent_env = make_agent_env(env_id, config, union_actions)
 
     # ── Pygame setup ──────────────────────────────────────────────────────
     pygame.init()
@@ -329,11 +334,12 @@ def main():
             action = masked_q.argmax(dim=1).item()
 
         # ── Step both environments ────────────────────────────────────
-        # Step render env (raw, action needs to be mapped to local)
-        # The agent env has UnifiedActionWrapper, but render env doesn't
+        # Step render env (raw, action needs to be mapped from union to local)
+        # The agent env has UnionActionWrapper, but render env doesn't
         minimal_actions = render_env.unwrapped.ale.getMinimalActionSet()
-        unified_to_local = {int(a): i for i, a in enumerate(minimal_actions)}
-        local_action = unified_to_local.get(action, 0)
+        union_to_local = {int(a): i for i, a in enumerate(minimal_actions)}
+        ale_action = union_actions[action]
+        local_action = union_to_local.get(ale_action, 0)
         raw_obs, raw_reward, raw_term, raw_trunc, _ = render_env.step(local_action)
 
         # Step agent env (wrapped)

@@ -1,194 +1,112 @@
 """
 Q-Value Normalization Utilities.
 
-Implements running-stats normalization to bring Q-values from different
-tasks to comparable scales, addressing the Q-value scale imbalance problem
-in multi-task / continual RL.
+Implements PopArt (Preserving Outputs Precisely while Adaptively Rescaling
+Targets) normalization for DQN, addressing the Q-value scale imbalance
+problem in multi-task / continual RL.
+
+Reference: van Hasselt et al., "Learning values across many orders of
+magnitude" (NeurIPS 2016).
 """
 
 import torch
-import numpy as np
+import torch.nn as nn
 from typing import Optional
 
 
-class RunningNormalizer:
-    """Running mean/std normalizer for Q-values.
+class PopArtNormalizer:
+    """PopArt normalization for DQN Q-value targets.
 
-    Tracks per-action running statistics and normalizes Q-values so that
-    different tasks' Q-scales remain comparable during consolidation.
+    Maintains running mean/std of scalar target Q-values and rescales the
+    network output layer weights and biases so that the un-normalized
+    predictions are preserved while the network learns on normalized targets.
 
-    Uses Welford's online algorithm for numerically stable updates.
+    The key equations when stats change from (mu_old, sigma_old) to
+    (mu_new, sigma_new):
+        W_new = (sigma_old / sigma_new) * W_old
+        b_new = (sigma_old * b_old + mu_old - mu_new) / sigma_new
 
     Args:
-        size: Number of values to track (unified_action_dim).
-        momentum: Exponential moving average momentum.
-        clip_range: Clip normalized values to [-clip_range, clip_range].
+        output_layer: The final nn.Linear layer of the Q-network.
+        momentum: EMA momentum for statistics update.
     """
 
-    def __init__(
-        self,
-        size: int = 18,
-        momentum: float = 0.01,
-        clip_range: float = 10.0,
-    ):
-        self.size = size
+    def __init__(self, output_layer: nn.Linear, momentum: float = 0.01):
+        self.output_layer = output_layer
         self.momentum = momentum
-        self.clip_range = clip_range
-
-        self.running_mean = torch.zeros(size)
-        self.running_var = torch.ones(size)
+        self.mu = torch.tensor(0.0)
+        self.sigma = torch.tensor(1.0)
         self.count = 0
 
-    def update(self, q_values: torch.Tensor) -> None:
-        """Update running statistics with a new batch of Q-values.
+    def normalize_targets(self, targets: torch.Tensor) -> torch.Tensor:
+        """Update running stats, rescale output layer, normalize targets.
 
         Args:
-            q_values: Tensor of shape (batch, size) containing Q-values.
-        """
-        with torch.no_grad():
-            batch_mean = q_values.mean(dim=0).cpu()
-            batch_var = q_values.var(dim=0).cpu()
-
-            if self.count == 0:
-                self.running_mean = batch_mean
-                self.running_var = batch_var
-            else:
-                self.running_mean = (
-                    (1 - self.momentum) * self.running_mean
-                    + self.momentum * batch_mean
-                )
-                self.running_var = (
-                    (1 - self.momentum) * self.running_var
-                    + self.momentum * batch_var
-                )
-            self.count += 1
-
-    def normalize(self, q_values: torch.Tensor) -> torch.Tensor:
-        """Normalize Q-values using running statistics.
-
-        Args:
-            q_values: Tensor of shape (batch, size).
+            targets: Un-normalized scalar targets of shape (batch,).
 
         Returns:
-            Normalized Q-values, clipped to [-clip_range, clip_range].
+            Normalized targets of shape (batch,).
         """
-        mean = self.running_mean.to(q_values.device)
-        std = torch.sqrt(self.running_var.to(q_values.device) + 1e-8)
-        normalized = (q_values - mean) / std
-        return torch.clamp(normalized, -self.clip_range, self.clip_range)
+        with torch.no_grad():
+            old_mu = self.mu.clone()
+            old_sigma = self.sigma.clone()
+
+            batch_mean = targets.mean().cpu()
+            batch_std = targets.std().cpu().clamp(min=1e-4)
+
+            if self.count == 0:
+                self.mu = batch_mean
+                self.sigma = batch_std
+            else:
+                self.mu = (1 - self.momentum) * self.mu + self.momentum * batch_mean
+                self.sigma = (
+                    (1 - self.momentum) * self.sigma + self.momentum * batch_std
+                )
+
+            self.count += 1
+
+            # Rescale output layer to preserve un-normalized outputs
+            if self.count > 1 and old_sigma > 1e-6:
+                device = self.output_layer.weight.device
+                old_sigma_d = old_sigma.to(device)
+                new_sigma_d = self.sigma.to(device)
+                old_mu_d = old_mu.to(device)
+                new_mu_d = self.mu.to(device)
+
+                old_bias = self.output_layer.bias.data.clone()
+                self.output_layer.weight.data.mul_(old_sigma_d / new_sigma_d)
+                self.output_layer.bias.data = (
+                    old_sigma_d * old_bias + old_mu_d - new_mu_d
+                ) / new_sigma_d
+
+        # Normalize targets
+        mu = self.mu.to(targets.device)
+        sigma = self.sigma.to(targets.device)
+        return (targets - mu) / sigma
 
     def denormalize(self, normalized_q: torch.Tensor) -> torch.Tensor:
         """Convert normalized Q-values back to original scale.
 
         Args:
-            normalized_q: Normalized Q-values of shape (batch, size).
+            normalized_q: Normalized Q-values (any shape).
 
         Returns:
-            Denormalized Q-values.
+            Un-normalized Q-values.
         """
-        mean = self.running_mean.to(normalized_q.device)
-        std = torch.sqrt(self.running_var.to(normalized_q.device) + 1e-8)
-        return normalized_q * std + mean
+        mu = self.mu.to(normalized_q.device)
+        sigma = self.sigma.to(normalized_q.device)
+        return sigma * normalized_q + mu
 
     def state_dict(self) -> dict:
+        """Serialize normalizer state for checkpointing."""
         return {
-            "running_mean": self.running_mean.clone(),
-            "running_var": self.running_var.clone(),
+            "mu": self.mu.clone(),
+            "sigma": self.sigma.clone(),
             "count": self.count,
         }
 
     def load_state_dict(self, state: dict) -> None:
-        self.running_mean = state["running_mean"].cpu()
-        self.running_var = state["running_var"].cpu()
-        self.count = state["count"]
-
-
-class PopArtNormalizer:
-    """PopArt (Preserving Outputs Precisely, while Adaptively Rescaling Targets).
-
-    Applies adaptive normalization to the output layer of the network,
-    preserving the target outputs while rescaling internal representations.
-
-    Reference: van Hasselt et al., "Learning values across many orders of
-    magnitude" (2016).
-
-    Args:
-        output_layer: The final Linear layer of the Q-network.
-        momentum: EMA momentum for statistics update.
-    """
-
-    def __init__(
-        self,
-        output_layer: torch.nn.Linear,
-        momentum: float = 0.01,
-    ):
-        self.output_layer = output_layer
-        self.momentum = momentum
-
-        out_features = output_layer.out_features
-        self.running_mean = torch.zeros(out_features)
-        self.running_std = torch.ones(out_features)
-        self.count = 0
-
-    def update_and_rescale(self, targets: torch.Tensor) -> torch.Tensor:
-        """Update statistics and rescale network output layer to preserve outputs.
-
-        Args:
-            targets: Raw target Q-values of shape (batch, out_features) or (batch,).
-
-        Returns:
-            Normalized targets for training.
-        """
-        with torch.no_grad():
-            if targets.dim() == 1:
-                new_mean = targets.mean().cpu()
-                new_std = targets.std().cpu().clamp(min=1e-4)
-
-                old_mean = self.running_mean.clone()
-                old_std = self.running_std.clone()
-
-                # Update stats
-                if self.count == 0:
-                    self.running_mean = new_mean.expand_as(self.running_mean)
-                    self.running_std = new_std.expand_as(self.running_std)
-                else:
-                    self.running_mean = (
-                        (1 - self.momentum) * self.running_mean + self.momentum * new_mean
-                    )
-                    self.running_std = (
-                        (1 - self.momentum) * self.running_std + self.momentum * new_std
-                    )
-                self.count += 1
-
-                # Rescale output layer weights and biases to preserve outputs
-                ratio = old_std / self.running_std
-                device = self.output_layer.weight.device
-                ratio = ratio.to(device)
-                old_mean = old_mean.to(device)
-                new_mean = self.running_mean.to(device)
-                new_std = self.running_std.to(device)
-
-                self.output_layer.weight.data *= ratio.unsqueeze(1)
-                self.output_layer.bias.data = (
-                    ratio * self.output_layer.bias.data
-                    + (ratio * old_mean - self.running_mean.to(device)) / new_std
-                )
-
-            # Normalize targets
-            mean = self.running_mean.to(targets.device)
-            std = self.running_std.to(targets.device)
-            if targets.dim() == 1:
-                return (targets - mean[0]) / std[0]
-            return (targets - mean) / std
-
-    def state_dict(self) -> dict:
-        return {
-            "running_mean": self.running_mean.clone(),
-            "running_std": self.running_std.clone(),
-            "count": self.count,
-        }
-
-    def load_state_dict(self, state: dict) -> None:
-        self.running_mean = state["running_mean"]
-        self.running_std = state["running_std"]
+        """Restore normalizer state from checkpoint."""
+        self.mu = state["mu"].cpu()
+        self.sigma = state["sigma"].cpu()
         self.count = state["count"]

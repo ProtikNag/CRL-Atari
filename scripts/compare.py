@@ -20,7 +20,7 @@ import matplotlib as mpl
 from matplotlib.colors import LinearSegmentedColormap
 
 from src.models.dqn import DQNNetwork
-from src.data.atari_wrappers import get_valid_actions
+from src.data.atari_wrappers import get_valid_actions, compute_union_action_space
 from src.utils.config import get_effective_config
 from src.utils.seed import set_seed
 from scripts.evaluate import evaluate_on_task, build_model
@@ -258,6 +258,10 @@ def main():
     checkpoint_dir = config["logging"]["checkpoint_dir"]
     figure_dir = config["logging"]["figure_dir"]
 
+    # Compute union action space
+    union_actions = compute_union_action_space(config["task_sequence"])
+    config["model"]["unified_action_dim"] = len(union_actions)
+
     task_sequence = config["task_sequence"]
     all_results = {}
 
@@ -270,10 +274,6 @@ def main():
     for env_id in task_sequence:
         game_name = env_id.replace("NoFrameskip-v4", "")
         ckpt_path = os.path.join(checkpoint_dir, args.tag, f"expert_{game_name}_best.pt")
-        if not os.path.exists(ckpt_path):
-            ckpt_path = os.path.join(
-                checkpoint_dir, args.tag, f"expert_{game_name}_final.pt"
-            )
 
         if not os.path.exists(ckpt_path):
             print(f"WARNING: Expert checkpoint not found for {game_name}, skipping.")
@@ -282,7 +282,7 @@ def main():
         model = load_model_checkpoint(ckpt_path, config, device)
 
         # Evaluate this expert on its own task
-        result = evaluate_on_task(model, env_id, config, device, num_episodes)
+        result = evaluate_on_task(model, env_id, config, device, union_actions, num_episodes)
         expert_per_task_results.append(result)
         print(
             f"  Expert ({game_name}) on {game_name}: "
@@ -312,7 +312,7 @@ def main():
 
         for env_id in task_sequence:
             game_name = env_id.replace("NoFrameskip-v4", "")
-            result = evaluate_on_task(model, env_id, config, device, num_episodes)
+            result = evaluate_on_task(model, env_id, config, device, union_actions, num_episodes)
             method_results.append(result)
             print(
                 f"  {method_names[method]} on {game_name}: "

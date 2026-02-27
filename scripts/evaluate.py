@@ -16,7 +16,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.dqn import DQNNetwork
-from src.data.atari_wrappers import make_atari_env, get_valid_actions
+from src.data.atari_wrappers import make_atari_env, get_valid_actions, compute_union_action_space
 from src.utils.config import get_effective_config
 from src.utils.seed import set_seed
 
@@ -40,6 +40,7 @@ def evaluate_on_task(
     env_id: str,
     config: dict,
     device: str,
+    union_actions: list,
     num_episodes: int = 30,
 ) -> dict:
     """Evaluate model on a single task.
@@ -57,6 +58,7 @@ def evaluate_on_task(
     env_cfg = config["env"]
     env = make_atari_env(
         env_id=env_id,
+        union_actions=union_actions,
         seed=config["seed"] + 2000,
         frame_stack=env_cfg["frame_stack"],
         frame_skip=env_cfg["frame_skip"],
@@ -66,7 +68,7 @@ def evaluate_on_task(
         clip_reward=False,
     )
 
-    valid_actions = get_valid_actions(env_id)
+    valid_actions = get_valid_actions(env_id, union_actions)
     model.eval()
     rewards = []
 
@@ -154,6 +156,11 @@ def main():
     set_seed(config["seed"])
     num_episodes = args.episodes or config["evaluation"]["episodes"]
 
+    # Compute union action space
+    union_actions = compute_union_action_space(config["task_sequence"])
+    config["model"]["unified_action_dim"] = len(union_actions)
+    print(f"Union action space: {union_actions} ({len(union_actions)} actions)")
+
     # Load model
     model = build_model(config, device)
 
@@ -179,7 +186,7 @@ def main():
     all_results = []
     for env_id in env_ids:
         print(f"\nEvaluating on {env_id}...")
-        result = evaluate_on_task(model, env_id, config, device, num_episodes)
+        result = evaluate_on_task(model, env_id, config, device, union_actions, num_episodes)
         all_results.append(result)
         print(
             f"  {result['game_name']}: "

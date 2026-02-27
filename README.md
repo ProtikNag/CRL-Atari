@@ -12,10 +12,10 @@ Different Atari games are presented **sequentially** as distinct tasks. The goal
 
 | Challenge | Solution |
 |---|---|
-| Different action spaces across games | **Unified 18-action DQN** head covering all Atari joystick actions. Invalid actions are masked per-game. |
-| Q-value scale imbalance | **Running-stats normalization** brings Q-values to comparable scales before consolidation. |
-| Expert drift from global model | Each expert is **initialized from the current global state** (HTCL-style) to limit parameter drift. |
+| Different action spaces across games | **Union action space** (6 actions for current task set). Only valid actions per game are used during selection and training. |
+| Q-value scale imbalance | **PopArt normalization** rescales output layer weights when target statistics change, preserving network predictions. |
 | Catastrophic forgetting | Three consolidation methods compared: EWC, Distillation, HTCL. |
+| Expert diversity | Each expert starts from **random initialization** and trains independently. |
 
 ### Task Sequence (Default)
 
@@ -31,7 +31,7 @@ CRL-Atari/
 │   └── base.yaml              # All hyperparameters (training, consolidation, debug)
 ├── src/
 │   ├── models/
-│   │   └── dqn.py             # DQN with unified 18-action head
+│   │   └── dqn.py             # DQN with union action head
 │   ├── agents/
 │   │   └── dqn_agent.py       # Agent: epsilon-greedy, action masking, Double DQN
 │   ├── data/
@@ -47,7 +47,7 @@ CRL-Atari/
 │       ├── config.py          # YAML config loading + debug mode
 │       ├── seed.py            # Reproducibility (all RNG seeds)
 │       ├── logger.py          # TensorBoard + CSV + console logging
-│       └── normalization.py   # Q-value running-stats / PopArt normalizer
+│       └── normalization.py   # PopArt Q-value normalizer
 ├── scripts/
 │   ├── train_experts.py       # Train expert DQN per task (sequential)
 │   ├── consolidate.py         # Merge experts via EWC / Distillation / HTCL
@@ -195,7 +195,7 @@ $$\mathbf{w}^{(t)} = \mathbf{w}^{(t-1)} + (\mathbf{H} + \lambda \mathbf{I})^{-1}
 **Key hyperparameters**:
 - `lambda_htcl`: Base lambda value (default: 100000)
 - `lambda_auto`: Auto-adjust to satisfy constraint (default: true)
-- `catch_up_iterations`: Refinement iterations after each merge (default: 2)
+- `catch_up_iterations`: Refinement iterations after each merge (default: 10)
 - `diagonal_fisher`: Use diagonal Fisher for Hessian approximation (default: true)
 
 ## Configuration
@@ -213,8 +213,8 @@ All hyperparameters live in [`configs/base.yaml`](configs/base.yaml). The config
 | `task_sequence` | Ordered list of Atari environments |
 | `model` | CNN architecture: channels, kernels, FC size |
 | `training` | Expert training: LR, buffer, exploration, etc. |
-| `normalization` | Q-value normalization settings |
-| `consolidation` | Global-to-local initialization flag |
+| `normalization` | PopArt Q-value normalization settings |
+| `consolidation` | Shared consolidation settings |
 | `ewc`, `distillation`, `htcl` | Method-specific hyperparameters |
 | `evaluation` | Eval episodes, deterministic flag |
 | `logging` | Log/checkpoint/figure directories, TensorBoard |
@@ -229,12 +229,12 @@ Input: (batch, 4, 84, 84)  [4 stacked grayscale frames]
   └─ Conv2d(64→64, 3×3, stride 1) + ReLU
   └─ Flatten
   └─ Linear(→512) + ReLU
-  └─ Linear(512→18)  [unified action head]
+  └─ Linear(512→6)  [union action head: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE]
 ```
 
-**Parameter count**: ~1.7M (Nature DQN architecture).
+**Parameter count**: ~1.7M.
 
-The unified 18-action output covers all possible Atari joystick positions. Per-game action masking sets invalid actions' Q-values to $-\infty$ during action selection and training.
+The union action space is computed at runtime from the minimal action sets of all games in the task sequence. For {Pong, Breakout, SpaceInvaders}, the union is [0, 1, 3, 4, 11, 12] = [NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE] = 6 actions. Per-game action masking sets invalid actions' Q-values to $-\infty$ during action selection and training.
 
 **Double DQN** is enabled by default — the policy network selects actions while the target network evaluates them, reducing overestimation bias.
 
@@ -277,3 +277,4 @@ Options:
 - Nag, Raghavan, Narayanan, "Mitigating Task-Order Sensitivity and Forgetting via Hierarchical Second-Order Consolidation", 2026 (HTCL)
 - Mnih et al., "Human-level control through deep reinforcement learning", Nature 2015 (DQN)
 - van Hasselt et al., "Deep Reinforcement Learning with Double Q-learning", AAAI 2016 (Double DQN)
+- van Hasselt et al., "Learning values across many orders of magnitude", NeurIPS 2016 (PopArt)

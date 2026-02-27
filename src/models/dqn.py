@@ -1,7 +1,9 @@
 """
-DQN Network with Unified Action Space for CRL-Atari.
+DQN Network with Union Action Space for CRL-Atari.
 
-The network outputs Q-values for ALL 18 Atari joystick actions.
+The network outputs Q-values for the UNION of minimal action sets across
+all games in the task sequence. For {Pong, Breakout, SpaceInvaders} the
+union is [NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE] = 6 actions.
 For a given game, only the valid action subset is used during
 action selection and training.
 """
@@ -13,9 +15,9 @@ from typing import List, Optional
 
 
 class DQNNetwork(nn.Module):
-    """Deep Q-Network with unified action head for multi-game CRL.
+    """Deep Q-Network with union action head for multi-game CRL.
 
-    Architecture: 3-layer CNN backbone -> FC hidden -> Q-value head (18 actions).
+    Architecture: 3-layer CNN backbone -> FC hidden -> Q-value head.
     Optionally supports Dueling DQN (value + advantage streams).
 
     Args:
@@ -24,7 +26,7 @@ class DQNNetwork(nn.Module):
         conv_kernels: List of kernel sizes for each conv layer.
         conv_strides: List of strides for each conv layer.
         fc_hidden: Size of the hidden fully connected layer.
-        unified_action_dim: Output dimension (18 for full Atari action set).
+        unified_action_dim: Output dimension (union action space size).
         dueling: Whether to use Dueling DQN architecture.
     """
 
@@ -34,14 +36,14 @@ class DQNNetwork(nn.Module):
         conv_channels: Optional[List[int]] = None,
         conv_kernels: Optional[List[int]] = None,
         conv_strides: Optional[List[int]] = None,
-        fc_hidden: int = 1024,
-        unified_action_dim: int = 18,
+        fc_hidden: int = 512,
+        unified_action_dim: int = 6,
         dueling: bool = False,
     ):
         super().__init__()
 
         if conv_channels is None:
-            conv_channels = [64, 128, 128]
+            conv_channels = [32, 64, 64]
         if conv_kernels is None:
             conv_kernels = [8, 4, 3]
         if conv_strides is None:
@@ -146,6 +148,13 @@ class DQNNetwork(nn.Module):
         # Set invalid actions to -inf so they are never selected
         q_values[~mask.unsqueeze(0).expand_as(q_values)] = float("-inf")
         return q_values
+
+    @property
+    def output_layer(self) -> nn.Linear:
+        """Return the final Linear layer (for PopArt weight rescaling)."""
+        if self.dueling:
+            return self.advantage_stream[-1]
+        return self.fc[-1]
 
     @property
     def num_parameters(self) -> int:
