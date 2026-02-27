@@ -28,17 +28,17 @@ model:
 
 # --- Training (Expert) ---
 training:
-  total_timesteps: 1_000_000
+  total_timesteps: 3_000_000
   learning_rate: 1.0e-4
   batch_size: 32
   gamma: 0.99
   # Replay buffer
-  buffer_size: 200_000
+  buffer_size: 500_000
   min_buffer_size: 50_000
-  # Exploration
+  # Exploration (linear decay over first 500K steps ≈ 17% of training)
   eps_start: 1.0
   eps_end: 0.01
-  eps_decay_steps: 250_000
+  eps_decay_steps: 500_000
   # Target network
   target_update_freq: 2500
   # Double DQN (use policy net to select, target net to evaluate)
@@ -47,9 +47,9 @@ training:
   train_freq: 4
   gradient_clip: 10.0
   # Checkpointing
-  save_freq: 100_000
+  save_freq: 250_000
   eval_freq: 50_000
-  eval_episodes: 5
+  eval_episodes: 10
 
 # --- Q-Value Normalization (PopArt) ---
 # PopArt rescales the output layer weights when running target statistics
@@ -128,12 +128,12 @@ logging:
 # --- Debug Mode ---
 debug:
   enabled: false
-  total_timesteps: 5000
-  buffer_size: 1000
+  total_timesteps: 10000
+  buffer_size: 2000
   min_buffer_size: 500
   eval_episodes: 2
-  eval_freq: 1000
-  save_freq: 2500
+  eval_freq: 2000
+  save_freq: 5000
   fisher_samples: 100
   distill_epochs: 5
   distill_buffer_size: 500
