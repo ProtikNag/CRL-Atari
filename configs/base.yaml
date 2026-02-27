@@ -54,8 +54,12 @@ training:
 # --- Q-Value Normalization (PopArt) ---
 # PopArt rescales the output layer weights when running target statistics
 # change, preserving un-normalized predictions during training.
+# NOTE: Disabled for expert training. PopArt continuously rescales the
+# output layer weights, which corrupts Adam's running moment estimates
+# and prevents single-task DQN from learning.  Re-enable only for
+# multi-task consolidation where reward scales genuinely differ.
 normalization:
-  enabled: true
+  enabled: false
   method: "popart"
   momentum: 0.01
 
