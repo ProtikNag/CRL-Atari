@@ -121,16 +121,30 @@ class NoopResetEnv(gym.Wrapper):
 
 
 class FireResetEnv(gym.Wrapper):
-    """Press FIRE on reset for environments that require it (e.g. Breakout).
+    """Press FIRE on reset and after life loss (e.g. Breakout).
 
-    Some Atari games require the FIRE action to start a new episode or life.
-    This wrapper detects the FIRE action in meanings and issues it on reset.
+    Some Atari games require the FIRE action to start a new episode AND
+    to relaunch the ball/ship after losing a life mid-game.
+
+    During training with EpisodicLifeEnv, every life loss triggers a reset,
+    so the reset-time FIRE suffices.  During evaluation (no EpisodicLifeEnv),
+    life loss does NOT trigger a reset — the game continues with the ball
+    sitting idle.  The agent never encountered this "ball waiting" state
+    during training, so it won't press FIRE on its own.
+
+    This wrapper solves both cases:
+      1. Fires on reset() to start the episode.
+      2. Fires in step() whenever lives decrease (mid-episode life loss).
+
+    The second behavior is critical for correct evaluation in Breakout-style
+    games, where the ball must be explicitly relaunched after every death.
     """
 
     def __init__(self, env: gym.Env):
         super().__init__(env)
         assert env.unwrapped.get_action_meanings()[1] == "FIRE"
         assert len(env.unwrapped.get_action_meanings()) >= 3
+        self.lives = 0
 
     def reset(self, **kwargs):
         self.env.reset(**kwargs)
@@ -140,7 +154,20 @@ class FireResetEnv(gym.Wrapper):
         obs, _, terminated, truncated, info = self.env.step(2)
         if terminated or truncated:
             obs, info = self.env.reset(**kwargs)
+        self.lives = self.env.unwrapped.ale.lives()
         return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        lives = self.env.unwrapped.ale.lives()
+        if 0 < lives < self.lives:
+            # Life was lost but game continues — press FIRE to relaunch.
+            # Preserve original terminated/truncated (EpisodicLifeEnv may
+            # have set terminated=True; we must not overwrite it).
+            obs, fire_reward, _, _, info = self.env.step(1)
+            reward += fire_reward
+        self.lives = lives
+        return obs, reward, terminated, truncated, info
 
 
 class EpisodicLifeEnv(gym.Wrapper):
