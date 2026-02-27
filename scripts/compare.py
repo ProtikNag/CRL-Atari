@@ -137,20 +137,17 @@ def plot_comparison_bar(
     ax.set_xticklabels(games)
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
 
-    os.makedirs(figure_dir, exist_ok=True)
-    fig.savefig(
-        os.path.join(figure_dir, f"{filename}.png"),
-        dpi=300,
-        bbox_inches="tight",
-        facecolor="white",
-    )
-    fig.savefig(
-        os.path.join(figure_dir, f"{filename}.svg"),
-        bbox_inches="tight",
-        facecolor="white",
-    )
+    for fmt in ("png", "svg"):
+        out_dir = os.path.join(figure_dir, fmt)
+        os.makedirs(out_dir, exist_ok=True)
+        fig.savefig(
+            os.path.join(out_dir, f"{filename}.{fmt}"),
+            dpi=300,
+            bbox_inches="tight",
+            facecolor="white",
+        )
     plt.close(fig)
-    print(f"Saved comparison plot to {figure_dir}/{filename}.png/.svg")
+    print(f"Saved comparison plot to {figure_dir}/{{png,svg}}/{filename}")
 
 
 def plot_forgetting_heatmap(
@@ -216,17 +213,15 @@ def plot_forgetting_heatmap(
 
     plt.colorbar(im, ax=ax, label="% of Expert Performance")
 
-    os.makedirs(figure_dir, exist_ok=True)
-    fig.savefig(
-        os.path.join(figure_dir, f"{filename}.png"),
-        dpi=300, bbox_inches="tight", facecolor="white",
-    )
-    fig.savefig(
-        os.path.join(figure_dir, f"{filename}.svg"),
-        bbox_inches="tight", facecolor="white",
-    )
+    for fmt in ("png", "svg"):
+        out_dir = os.path.join(figure_dir, fmt)
+        os.makedirs(out_dir, exist_ok=True)
+        fig.savefig(
+            os.path.join(out_dir, f"{filename}.{fmt}"),
+            dpi=300, bbox_inches="tight", facecolor="white",
+        )
     plt.close(fig)
-    print(f"Saved heatmap to {figure_dir}/{filename}.png/.svg")
+    print(f"Saved heatmap to {figure_dir}/{{png,svg}}/{filename}")
 
 
 def main():

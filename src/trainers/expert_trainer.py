@@ -4,6 +4,7 @@ Expert Trainer: trains a single DQN agent on one Atari task.
 Each expert starts from random initialization and trains independently.
 """
 
+import json
 import os
 import time
 import numpy as np
@@ -133,6 +134,12 @@ class ExpertTrainer:
         if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
             logger.info(f"Resuming expert from checkpoint: {resume_checkpoint}")
             self.agent.load(resume_checkpoint)
+            # Load reward history from JSON sidecar (enables continuous curves)
+            self._load_reward_history()
+            logger.info(
+                f"Resuming from env_step={self.agent.env_steps} "
+                f"with {len(self.eval_steps)} prior eval points"
+            )
 
         # Create environment
         env_cfg = config["env"]
@@ -175,7 +182,14 @@ class ExpertTrainer:
         best_eval_reward = float("-inf")
         start_time = time.time()
 
-        for step in range(1, total_timesteps + 1):
+        # Resume-aware: start from where the agent left off
+        start_step = self.agent.env_steps + 1
+        if start_step > 1:
+            self.logger.info(
+                f"[{self.game_name}] Resuming training from step {start_step}"
+            )
+
+        for step in range(start_step, total_timesteps + 1):
             # Select and execute action
             action = self.agent.select_action(state)
             next_state, reward, terminated, truncated, info = self.env.step(action)
@@ -225,6 +239,8 @@ class ExpertTrainer:
                 eval_reward = self.evaluate(eval_episodes)
                 self.eval_steps.append(step)
                 self.eval_rewards.append(eval_reward)
+                # Persist reward history for resumable training
+                self._save_reward_history()
                 self.logger.log_scalar(
                     f"{self.game_name}/eval_reward", eval_reward, step
                 )
@@ -268,6 +284,9 @@ class ExpertTrainer:
             f"[{self.game_name}] Training complete. "
             f"Final eval: {final_eval:.2f} | Best eval: {best_eval_reward:.2f}"
         )
+
+        # Persist final reward history (ensures last eval point is captured)
+        self._save_reward_history()
 
         # Generate reward curve
         figure_dir = self.config["logging"].get("figure_dir", "results/figures")
@@ -325,6 +344,52 @@ class ExpertTrainer:
 
         eval_env.close()
         return float(np.mean(rewards))
+
+    # ── Reward history persistence (for resumable training) ───────────────────
+
+    def _reward_history_path(self) -> str:
+        """Return the path to the JSON sidecar file for this game's eval history."""
+        checkpoint_dir = self.config["logging"]["checkpoint_dir"]
+        return os.path.join(
+            checkpoint_dir, self.experiment_tag,
+            f"expert_{self.game_name}_history.json",
+        )
+
+    def _save_reward_history(self) -> None:
+        """Persist eval_steps and eval_rewards to a lightweight JSON file.
+
+        Called after every evaluation so the history survives interruption.
+        Typical size: ~1-2 KB per game (20 eval points at 50K freq / 1M steps).
+        """
+        path = self._reward_history_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {
+            "game_name": self.game_name,
+            "env_id": self.env_id,
+            "eval_steps": self.eval_steps,
+            "eval_rewards": self.eval_rewards,
+        }
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def _load_reward_history(self) -> None:
+        """Load previously saved eval history from the JSON sidecar.
+
+        Populates self.eval_steps and self.eval_rewards so that reward curves
+        generated after resumed training span the full 0 → final_step range.
+        """
+        path = self._reward_history_path()
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            self.eval_steps = data.get("eval_steps", [])
+            self.eval_rewards = data.get("eval_rewards", [])
+        except (json.JSONDecodeError, KeyError) as exc:
+            self.logger.info(
+                f"[{self.game_name}] Could not load reward history: {exc}"
+            )
 
     # ── Reward curve plotting ─────────────────────────────────────────────────
 

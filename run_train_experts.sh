@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output job%j.%N.out
 #SBATCH --error job%j.%N.err
-#SBATCH -p gpu
+#SBATCH -p dgx_aic
 
 # =============================================================================
 # CRL-Atari: Train Expert DQN Agents Only
