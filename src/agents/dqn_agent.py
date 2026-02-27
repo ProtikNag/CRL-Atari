@@ -1,8 +1,9 @@
 """
-DQN Agent for Atari games with unified action space.
+DQN Agent for Atari games with union action space.
 
 Handles action selection (epsilon-greedy with action masking),
-training step, and target network updates.
+training step (with PopArt Q-value normalization), and target
+network updates.
 """
 
 import torch
@@ -15,15 +16,14 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from src.models.dqn import DQNNetwork
 from src.data.replay_buffer import ReplayBuffer
-from src.utils.normalization import RunningNormalizer
+from src.utils.normalization import PopArtNormalizer
 
 
 class DQNAgent:
-    """DQN agent with unified action space and Q-value normalization.
+    """DQN agent with union action space and PopArt Q-value normalization.
 
     Supports action masking for game-specific valid actions, epsilon-greedy
-    exploration, target network soft/hard updates, and running-stats
-    Q-value normalization.
+    exploration, target network hard updates, and PopArt normalization.
 
     Args:
         config: Configuration dictionary.
@@ -71,14 +71,13 @@ class DQNAgent:
             device=device,
         )
 
-        # Q-value normalizer
+        # Q-value normalizer (PopArt)
         norm_cfg = config.get("normalization", {})
         self.normalizer = None
         if norm_cfg.get("enabled", False):
-            self.normalizer = RunningNormalizer(
-                size=model_cfg["unified_action_dim"],
+            self.normalizer = PopArtNormalizer(
+                output_layer=self.policy_net.output_layer,
                 momentum=norm_cfg.get("momentum", 0.01),
-                clip_range=norm_cfg.get("clip_range", 10.0),
             )
 
         # Exploration parameters
@@ -173,18 +172,24 @@ class DQNAgent:
                 masked_next_q_policy = next_q_policy + mask.unsqueeze(0)
                 next_actions = masked_next_q_policy.argmax(dim=1, keepdim=True)
                 next_q_target = self.target_net(next_states)
+                # Denormalize target net outputs if PopArt is enabled
+                if self.normalizer is not None:
+                    next_q_target = self.normalizer.denormalize(next_q_target)
                 next_q_max = next_q_target.gather(1, next_actions).squeeze(1)
             else:
                 # Standard DQN: target net selects and evaluates
                 next_q_values = self.target_net(next_states)
+                # Denormalize target net outputs if PopArt is enabled
+                if self.normalizer is not None:
+                    next_q_values = self.normalizer.denormalize(next_q_values)
                 masked_next_q = next_q_values + mask.unsqueeze(0)
                 next_q_max = masked_next_q.max(dim=1)[0]
 
             target = rewards + self.gamma * next_q_max * (1 - dones)
 
-        # Update normalizer if enabled
+        # PopArt: normalize targets, rescale output layer
         if self.normalizer is not None:
-            self.normalizer.update(q_values.detach())
+            target = self.normalizer.normalize_targets(target)
 
         # Huber loss (smooth L1)
         loss = nn.functional.smooth_l1_loss(q_taken, target)
@@ -243,15 +248,6 @@ class DQNAgent:
         self.train_steps = checkpoint.get("train_steps", checkpoint.get("total_steps", 0))
         if self.normalizer is not None and "normalizer" in checkpoint:
             self.normalizer.load_state_dict(checkpoint["normalizer"])
-
-    def load_policy_weights(self, state_dict: dict) -> None:
-        """Load only policy network weights (for global-to-local init).
-
-        Args:
-            state_dict: State dict for the policy network.
-        """
-        self.policy_net.load_state_dict(state_dict)
-        self.target_net.load_state_dict(state_dict)
 
     def get_policy_state_dict(self) -> dict:
         """Return a copy of the policy network state dict."""

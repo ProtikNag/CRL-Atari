@@ -337,11 +337,11 @@
         <li><a href="#sec-overview">Overview and Motivation</a></li>
         <li><a href="#sec-architecture">System Architecture (Pipeline Flowchart)</a></li>
         <li><a href="#sec-dqn">DQN Network Architecture</a></li>
-        <li><a href="#sec-action">Unified Action Space and Action Masking</a></li>
+        <li><a href="#sec-action">Union Action Space and Action Masking</a></li>
         <li><a href="#sec-preproc">Atari Environment Preprocessing</a></li>
         <li><a href="#sec-training">DQN Agent and Training Loop</a></li>
         <li><a href="#sec-norm">Q-Value Normalization</a></li>
-        <li><a href="#sec-init">Global-to-Local Initialization</a></li>
+        <li><a href="#sec-init">Expert Initialization Strategy</a></li>
         <li><a href="#sec-ewc">EWC Consolidation</a></li>
         <li><a href="#sec-distill">Knowledge Distillation Consolidation</a></li>
         <li><a href="#sec-htcl">HTCL Consolidation (Taylor Expansion)</a></li>
@@ -366,8 +366,8 @@
     <p>The pipeline follows a <em>train experts, then consolidate</em> paradigm:</p>
     <ol>
         <li><strong>Expert Training</strong> &mdash; Train separate DQN agents, one per Atari game
-            (Pong, Breakout, SpaceInvaders). Each expert shares a unified 18-action output head
-            covering the full Atari joystick action space, with game-specific action masking.</li>
+            (Pong, Breakout, SpaceInvaders). All experts share a union action space
+            (the union of each game&rsquo;s minimal actions, computed at runtime), with per-game action masking.</li>
         <li><strong>Consolidation</strong> &mdash; Merge the expert models into a single global
             model using one of three methods:
             <ul>
@@ -382,12 +382,13 @@
 
     <h3>Key Design Decisions</h3>
     <ul>
-        <li><strong>Unified 18-action head</strong> &mdash; All experts output Q-values for all 18 Atari actions.
-            Invalid actions are masked to &minus;&infin;. This allows direct weight sharing and averaging.</li>
-        <li><strong>Global-to-local initialization</strong> &mdash; Experts are initialized from a shared global
-            model (initially random, then updated as the running average of trained experts).</li>
-        <li><strong>Q-value normalization</strong> &mdash; Running statistics normalize Q-values to handle scale
-            differences across games (Pong rewards in [&minus;1, 1] vs. SpaceInvaders in [0, 500+]).</li>
+        <li><strong>Union action space</strong> &mdash; The output head covers the union of each game&rsquo;s
+            minimal action set (6 actions for Pong/Breakout/SpaceInvaders). Invalid actions are
+            masked to &minus;&infin;. This allows direct weight sharing and merging.</li>
+        <li><strong>Independent expert initialization</strong> &mdash; Each expert is initialized from random
+            weights, avoiding any coupling between the sequential training order.</li>
+        <li><strong>PopArt normalization</strong> &mdash; Q-value output layer weights are rescaled on-the-fly to
+            handle scale differences across games (Pong rewards in [&minus;1, 1] vs. SpaceInvaders in [0, 500+]).</li>
         <li><strong>Diagonal Fisher</strong> &mdash; Used by both EWC and HTCL as a computationally tractable
             approximation to the Hessian, enabling element-wise closed-form updates in HTCL.</li>
     </ul>
@@ -406,15 +407,14 @@
     <h2>2. System Architecture (Pipeline Flowchart)</h2>
 
     <div class="flowchart">
-        <!-- Row 1: Config + Global Init -->
+        <!-- Row 1: Config + Seed -->
         <div class="flow-row">
             <div class="flow-box bg-gold">Config<small>base.yaml</small></div>
-            <div class="flow-box bg-blue">Global Model<small>Random Init</small></div>
             <div class="flow-box bg-green">Seed<small>Reproducibility</small></div>
         </div>
 
         <div class="flow-arrow">&darr;</div>
-        <div class="flow-label">Global-to-Local Initialization</div>
+        <div class="flow-label">Independent Random Initialization per Expert</div>
 
         <!-- Row 2: Expert Training -->
         <div class="flow-row">
@@ -424,18 +424,9 @@
         </div>
 
         <div class="flow-arrow">&darr;</div>
+        <div class="flow-label">Expert checkpoints + replay buffers</div>
 
-        <!-- Row 3: Parameter Average -->
-        <div class="flow-row">
-            <div class="flow-box bg-teal" style="min-width: 320px;">
-                Parameter Average
-                <small>w<sub>global</sub> = (1/T) &middot; &Sigma; w<sub>expert_t</sub></small>
-            </div>
-        </div>
-
-        <div class="flow-arrow">&darr;</div>
-
-        <!-- Row 4: Consolidation Methods -->
+        <!-- Row 3: Consolidation Methods -->
         <div class="flow-row">
             <div class="flow-box bg-gold">EWC<small>Fisher + L2 penalty</small></div>
             <div class="flow-box bg-purple">Distillation<small>KL-div soft targets</small></div>
@@ -479,72 +470,73 @@
     <h2>3. DQN Network Architecture</h2>
 
     <p>The DQN uses a standard convolutional neural network (CNN) backbone followed by fully
-    connected layers. The key architectural choice is the <strong>unified 18-action output head</strong>
-    that covers the full Atari joystick action space across all games.</p>
+    connected layers. The key architectural choice is the <strong>union action space output head</strong>
+    that covers the union of minimal action sets across all games.</p>
 
     <h3>Architecture</h3>
 <pre><code>Input:  (batch, 4, 84, 84)    # 4 stacked grayscale frames, 84&times;84 pixels
 
-Layer 1: Conv2d(4 &rarr; 64,  kernel=8&times;8, stride=4, padding=0) + ReLU
-         Output: (batch, 64, 20, 20)
+Layer 1: Conv2d(4 &rarr; 32,  kernel=8&times;8, stride=4, padding=0) + ReLU
+         Output: (batch, 32, 20, 20)
 
-Layer 2: Conv2d(64 &rarr; 128, kernel=4&times;4, stride=2, padding=0) + ReLU
-         Output: (batch, 128, 9, 9)
+Layer 2: Conv2d(32 &rarr; 64, kernel=4&times;4, stride=2, padding=0) + ReLU
+         Output: (batch, 64, 9, 9)
 
-Layer 3: Conv2d(128 &rarr; 128, kernel=3&times;3, stride=1, padding=0) + ReLU
-         Output: (batch, 128, 7, 7)
+Layer 3: Conv2d(64 &rarr; 64, kernel=3&times;3, stride=1, padding=0) + ReLU
+         Output: (batch, 64, 7, 7)
 
-Flatten: (batch, 128 &times; 7 &times; 7) = (batch, 6272)
+Flatten: (batch, 64 &times; 7 &times; 7) = (batch, 3136)
 
-FC:      Linear(6272 &rarr; 1024) + ReLU
+FC:      Linear(3136 &rarr; 512) + ReLU
 
-Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
+Output:  Linear(512 &rarr; 6)   # Q-values for union action space</code></pre>
 
-    <p><strong>Total parameters:</strong> ~6.7 million</p>
+    <p><strong>Total parameters:</strong> ~1.7 million</p>
 
     <h3>Dueling DQN (optional)</h3>
     <p>Instead of a single output head, splits into two streams:</p>
     <ul>
-        <li><strong>Value stream:</strong> Linear(1024 &rarr; 512) &rarr; Linear(512 &rarr; 1)</li>
-        <li><strong>Advantage stream:</strong> Linear(1024 &rarr; 512) &rarr; Linear(512 &rarr; 18)</li>
+        <li><strong>Value stream:</strong> Linear(512 &rarr; 256) &rarr; Linear(256 &rarr; 1)</li>
+        <li><strong>Advantage stream:</strong> Linear(512 &rarr; 256) &rarr; Linear(256 &rarr; 6)</li>
     </ul>
     <div class="equation">
         Q(s, a) = V(s) + A(s, a) &minus; mean<sub>a'</sub> A(s, a')
     </div>
 
-    <h3>Why 18 Actions?</h3>
-    <p>The full Atari joystick has 18 possible actions (combinations of directions + fire).
-    Each game uses a subset:</p>
+    <h3>Why a Union Action Space?</h3>
+    <p>Rather than using all 18 ALE joystick actions, we compute the <em>union</em> of each game&rsquo;s
+    minimal action set at runtime. For Pong + Breakout + SpaceInvaders this yields 6 actions:</p>
     <table>
-        <tr><th>Game</th><th>Actions Used</th><th>Indices</th></tr>
+        <tr><th>Game</th><th>Minimal Actions</th><th>ALE Indices</th></tr>
         <tr><td>Pong</td><td>6 actions</td><td>&#123;0, 1, 3, 4, 11, 12&#125;</td></tr>
         <tr><td>Breakout</td><td>4 actions</td><td>&#123;0, 1, 3, 4&#125;</td></tr>
         <tr><td>SpaceInvaders</td><td>6 actions</td><td>&#123;0, 1, 3, 4, 11, 12&#125;</td></tr>
     </table>
-    <p>By outputting all 18, we can directly average or merge expert weights without
-    architectural mismatches. Invalid actions are masked to &minus;&infin;.</p>
+    <p><strong>Union = &#123;0, 1, 3, 4, 11, 12&#125;</strong> = NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE (6 actions).
+    This is a much smaller head than the full 18-action space, resulting in fewer parameters
+    and a more efficient representation. Invalid actions per game are still masked to &minus;&infin;.</p>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════
      4. UNIFIED ACTION SPACE
      ═══════════════════════════════════════════════════════════ -->
 <section id="sec-action">
-    <h2>4. Unified Action Space and Action Masking</h2>
+    <h2>4. Union Action Space and Action Masking</h2>
 
     <p>The Arcade Learning Environment (ALE) defines 18 possible actions for the Atari joystick:</p>
 
     <table>
         <tr><th>Index</th><th>Action</th><th>Index</th><th>Action</th><th>Index</th><th>Action</th></tr>
-        <tr><td>0</td><td>NOOP</td><td>6</td><td>UPRIGHT</td><td>12</td><td>RIGHTFIRE</td></tr>
-        <tr><td>1</td><td>FIRE</td><td>7</td><td>UPLEFT</td><td>13</td><td>UPRIGHTFIRE</td></tr>
-        <tr><td>2</td><td>UP</td><td>8</td><td>DOWNRIGHT</td><td>14</td><td>UPLEFTFIRE</td></tr>
-        <tr><td>3</td><td>RIGHT</td><td>9</td><td>DOWNLEFT</td><td>15</td><td>DOWNRIGHTFIRE</td></tr>
-        <tr><td>4</td><td>LEFT</td><td>10</td><td>UPFIRE</td><td>16</td><td>DOWNLEFTFIRE</td></tr>
-        <tr><td>5</td><td>DOWN</td><td>11</td><td>DOWNFIRE</td><td>17</td><td>UPLEFTFIRE</td></tr>
+        <tr><td>0</td><td>NOOP</td><td>6</td><td>UPRIGHT</td><td>12</td><td>LEFTFIRE</td></tr>
+        <tr><td>1</td><td>FIRE</td><td>7</td><td>UPLEFT</td><td>13</td><td>DOWNFIRE</td></tr>
+        <tr><td>2</td><td>UP</td><td>8</td><td>DOWNRIGHT</td><td>14</td><td>UPRIGHTFIRE</td></tr>
+        <tr><td>3</td><td>RIGHT</td><td>9</td><td>DOWNLEFT</td><td>15</td><td>UPLEFTFIRE</td></tr>
+        <tr><td>4</td><td>LEFT</td><td>10</td><td>UPFIRE</td><td>16</td><td>DOWNRIGHTFIRE</td></tr>
+        <tr><td>5</td><td>DOWN</td><td>11</td><td>RIGHTFIRE</td><td>17</td><td>DOWNLEFTFIRE</td></tr>
     </table>
 
     <h3>Action Masking</h3>
-    <p>During action selection, the agent computes Q(s, a) for all 18 actions, then applies:</p>
+    <p>During action selection, the agent computes Q(s, a) for all 6 union actions, then applies:</p>
     <div class="equation">
         mask[a] = 0 if a &in; valid_actions, &minus;&infin; otherwise<br><br>
         Q<sub>masked</sub>(s, a) = Q(s, a) + mask[a]<br><br>
@@ -553,22 +545,33 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
     <p>This ensures the agent <strong>never</strong> selects an invalid action while maintaining a
     shared weight structure.</p>
 
-    <h3>Action Mapping (UnifiedActionWrapper)</h3>
+    <h3>Action Mapping (UnionActionWrapper)</h3>
     <p>The ALE environment expects <em>local</em> action indices (0 to n_game_actions &minus; 1),
-    not unified indices. The <code>UnifiedActionWrapper</code> translates:</p>
+    not union indices. The <code>UnionActionWrapper</code> translates:</p>
 <pre><code>Example for Pong (minimal actions = [0, 1, 3, 4, 11, 12]):
-    unified action 0  &rarr; local index 0
-    unified action 1  &rarr; local index 1
-    unified action 3  &rarr; local index 2
-    unified action 4  &rarr; local index 3
-    unified action 11 &rarr; local index 4
-    unified action 12 &rarr; local index 5</code></pre>
-    <p>This wrapper is the <strong>innermost</strong> wrapper (applied right after <code>gym.make</code>)
-    so all other wrappers see the standard local action space.</p>
+    Union = [0, 1, 3, 4, 11, 12]  (all 6 are valid for Pong)
+    union index 0 (NOOP)       &rarr; local index 0
+    union index 1 (FIRE)       &rarr; local index 1
+    union index 2 (RIGHT)      &rarr; local index 2
+    union index 3 (LEFT)       &rarr; local index 3
+    union index 4 (RIGHTFIRE)  &rarr; local index 4
+    union index 5 (LEFTFIRE)   &rarr; local index 5
+
+Example for Breakout (minimal actions = [0, 1, 3, 4]):
+    union index 0 (NOOP)       &rarr; local index 0
+    union index 1 (FIRE)       &rarr; local index 1
+    union index 2 (RIGHT)      &rarr; local index 2
+    union index 3 (LEFT)       &rarr; local index 3
+    union index 4 (RIGHTFIRE)  &rarr; INVALID (masked to &minus;&infin;)
+    union index 5 (LEFTFIRE)   &rarr; INVALID (masked to &minus;&infin;)</code></pre>
+    <p>This wrapper is the <strong>outermost</strong> wrapper (applied last, after all other wrappers)
+    so that inner wrappers such as <code>FireResetEnv</code> still operate on the game&rsquo;s local action
+    space. The agent issues union indices, which the wrapper maps to local indices before
+    passing them down.</p>
 
     <h3>Epsilon-Greedy Exploration</h3>
     <p>During training, with probability &epsilon;, the agent selects a random action
-    uniformly from the valid action set (not all 18 actions):</p>
+    uniformly from the valid action set (not all 6 union actions):</p>
     <div class="equation">
         a ~ Uniform(valid_actions) with probability &epsilon;<br>
         a = argmax Q<sub>masked</sub>(s, a) with probability 1 &minus; &epsilon;
@@ -587,19 +590,21 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
     the reward/termination signals. Applied in this exact order:</p>
     <ol>
         <li><code>gym.make(env_id)</code> &mdash; Raw ALE environment</li>
-        <li><code>UnifiedActionWrapper</code> &mdash; Unified &rarr; local action mapping</li>
         <li><code>NoopResetEnv(noop_max=30)</code> &mdash; Random 1&ndash;30 NOOP actions on reset</li>
         <li><code>MaxAndSkipEnv(skip=4)</code> &mdash; Repeat action 4&times;, return max of last 2 frames</li>
         <li><code>EpisodicLifeEnv</code> &mdash; Treat life loss as episode end (training only)</li>
         <li><code>FireResetEnv</code> &mdash; Press FIRE after reset (if game requires it)</li>
-        <li><code>ClipRewardEnv</code> &mdash; Clip rewards to &#123;&minus;1, 0, +1&#125; via <code>np.sign</code></li>
         <li><code>WarpFrame(84, 84)</code> &mdash; RGB &rarr; grayscale, resize to 84&times;84</li>
+        <li><code>ClipRewardEnv</code> &mdash; Clip rewards to &#123;&minus;1, 0, +1&#125; via <code>np.sign</code> (training only)</li>
         <li><code>FrameStack(k=4)</code> &mdash; Stack last 4 frames &rarr; (4, 84, 84)</li>
+        <li><code>UnionActionWrapper</code> &mdash; Union &rarr; local action mapping (<strong>outermost</strong>)</li>
     </ol>
 
     <div class="callout">
-        <strong>Why this order matters:</strong> <code>UnifiedActionWrapper</code> must be innermost
-        because it translates actions before any other wrapper processes them. <code>EpisodicLifeEnv</code>
+        <strong>Why this order matters:</strong> <code>UnionActionWrapper</code> must be the <strong>outermost</strong>
+        wrapper so that inner wrappers like <code>FireResetEnv</code> still see the game&rsquo;s native local
+        action space. The agent issues union action indices, which the outermost wrapper maps to
+        local indices before passing down through the wrapper chain. <code>EpisodicLifeEnv</code>
         and <code>ClipRewardEnv</code> are used only during training. Evaluation uses true game-over
         and raw unclipped rewards.
     </div>
@@ -611,7 +616,7 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
     <h3>Replay Buffer</h3>
     <p>Stores transitions as uint8 numpy arrays (memory-efficient):
     <code>(state, action, reward, next_state, done)</code> with state shape (4, 84, 84).
-    Capacity: 100,000 transitions (default) or 1,000 (debug mode). Sampling: random uniform.
+    Capacity: 200,000 transitions (default) or 1,000 (debug mode). Sampling: random uniform.
     Pixels normalized to [0, 1] float on sample.</p>
 </section>
 
@@ -627,7 +632,7 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
     <h3>Double Network Architecture</h3>
     <ul>
         <li><strong>Policy network</strong> &mdash; Updated every <code>train_freq=4</code> environment steps</li>
-        <li><strong>Target network</strong> &mdash; Hard-copied from policy every <code>target_update_freq=1000</code> steps</li>
+        <li><strong>Target network</strong> &mdash; Hard-copied from policy every <code>target_update_freq=2500</code> steps</li>
     </ul>
 
     <h3>Target Q-Value Computation</h3>
@@ -655,9 +660,8 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
 
     <h3>Checkpointing</h3>
     <ul>
-        <li>Best model (by evaluation reward) saved automatically</li>
-        <li>Periodic checkpoints every <code>save_freq=50,000</code> steps</li>
-        <li>Final model saved at end of training</li>
+        <li>Best model (by evaluation reward) saved automatically as <code>expert_{Game}_best.pt</code></li>
+        <li>Periodic step checkpoints are deleted when a new best is found (keeps only the best)</li>
         <li>Each checkpoint contains: policy_net, target_net, optimizer, normalizer, step count</li>
     </ul>
 </section>
@@ -677,31 +681,34 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
     </table>
     <p>Without normalization, high-reward games would dominate the consolidation process.</p>
 
-    <h3>Method 1: RunningNormalizer (Default)</h3>
-    <p>Uses exponential moving average to track per-action running statistics:</p>
-    <div class="equation">
-        &mu;(t) = (1 &minus; m) &middot; &mu;(t&minus;1) + m &middot; mean(Q<sub>batch</sub>)<br>
-        &sigma;(t) = (1 &minus; m) &middot; &sigma;(t&minus;1) + m &middot; var(Q<sub>batch</sub>)
-    </div>
-    <div class="equation">
-        Q&#770; = clamp( (Q &minus; &mu;) / &radic;(&sigma;&sup2; + 10<sup>&minus;8</sup>), &minus;C, C )
-    </div>
-    <p>Parameters: momentum m = 0.01, clip range C = 10.0.</p>
-
-    <h3>Method 2: PopArtNormalizer (Optional)</h3>
+    <h3>Method: PopArt Normalization (Default)</h3>
     <p><em>&ldquo;Preserving Outputs Precisely while Adaptively Rescaling Targets&rdquo;</em>
-    (van Hasselt et al., 2016). Instead of normalizing Q-values externally, it modifies
-    the output layer weights to preserve the network's predictions while changing the
-    internal representation:</p>
+    (van Hasselt et al., 2016). Instead of normalizing Q-values externally, PopArt modifies
+    the output layer weights to preserve the network&rsquo;s predictions while adapting to
+    changing target statistics:</p>
+    <div class="equation">
+        &mu;(t) = (1 &minus; m) &middot; &mu;(t&minus;1) + m &middot; mean(targets)<br>
+        &sigma;(t) = (1 &minus; m) &middot; &sigma;(t&minus;1) + m &middot; var(targets)
+    </div>
+    <p>When the running statistics change, the output layer weights and biases are rescaled
+    to preserve the network&rsquo;s unnormalized outputs:</p>
     <div class="equation">
         W<sub>new</sub> = W<sub>old</sub> &middot; &sigma;<sub>old</sub> / &sigma;<sub>new</sub><br>
         b<sub>new</sub> = (&sigma;<sub>old</sub> &middot; b<sub>old</sub> + &mu;<sub>old</sub> &minus; &mu;<sub>new</sub>) / &sigma;<sub>new</sub>
     </div>
+    <p>Parameters: momentum m = 0.01.</p>
+
+    <h4>Integration with Double DQN</h4>
+    <p>During training, the target network&rsquo;s outputs are <em>denormalized</em> before computing
+    the Bellman target (r + &gamma; max Q<sub>target</sub>). The resulting target is then
+    <em>normalized</em> before computing the loss against the policy network&rsquo;s output. This
+    ensures the loss is computed in the normalized space while the Bellman backup operates
+    in the original reward scale. Action selection via argmax is invariant to affine transforms.</p>
 
     <div class="callout success">
-        <strong>Significance for consolidation:</strong> In knowledge distillation, we normalize
-        Q-values per task before computing KL divergence. This ensures the distillation loss
-        treats all games equally regardless of their raw Q-value scale.
+        <strong>Significance for consolidation:</strong> PopArt handles reward-scale differences
+        between games naturally&mdash;no external normalization needed. In knowledge distillation,
+        Q-values are additionally normalized per task before computing KL divergence.
     </div>
 </section>
 
@@ -709,48 +716,38 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
      8. GLOBAL-TO-LOCAL INITIALIZATION
      ═══════════════════════════════════════════════════════════ -->
 <section id="sec-init">
-    <h2>8. Global-to-Local Initialization</h2>
+    <h2>8. Expert Initialization Strategy</h2>
 
-    <p>A key component of the hierarchical training pipeline. Instead of initializing each
-    expert from scratch (random weights), we initialize from a shared &ldquo;global&rdquo; model.</p>
+    <p>Each expert is initialized independently with <strong>random weights</strong>. There is no
+    shared global model or weight averaging between experts during training.</p>
 
     <h3>Procedure</h3>
     <ol>
-        <li>Create a random global model: w<sub>global</sub> ~ Random</li>
-        <li><strong>Expert 1 (Pong):</strong>
-            <ul>
-                <li>w<sub>Pong</sub> := w<sub>global</sub> (initialize from global)</li>
-                <li>Train w<sub>Pong</sub> on Pong for T steps</li>
-                <li>w<sub>global</sub> := w<sub>Pong</sub></li>
-            </ul>
-        </li>
-        <li><strong>Expert 2 (Breakout):</strong>
-            <ul>
-                <li>w<sub>global</sub> := mean(w<sub>Pong</sub>, w<sub>global</sub>)</li>
-                <li>w<sub>Breakout</sub> := w<sub>global</sub></li>
-                <li>Train w<sub>Breakout</sub> on Breakout for T steps</li>
-                <li>w<sub>global</sub> := mean(w<sub>Pong</sub>, w<sub>Breakout</sub>)</li>
-            </ul>
-        </li>
-        <li><strong>Expert 3 (SpaceInvaders):</strong>
-            <ul>
-                <li>w<sub>global</sub> := mean of all prior experts + global</li>
-                <li>w<sub>SpaceInv</sub> := w<sub>global</sub></li>
-                <li>Train w<sub>SpaceInv</sub> on SpaceInvaders for T steps</li>
-            </ul>
-        </li>
+        <li><strong>Expert 1 (Pong):</strong> Random init &rarr; Train on Pong for T steps &rarr; Save best checkpoint</li>
+        <li><strong>Expert 2 (Breakout):</strong> Random init &rarr; Train on Breakout for T steps &rarr; Save best checkpoint</li>
+        <li><strong>Expert 3 (SpaceInvaders):</strong> Random init &rarr; Train on SpaceInvaders for T steps &rarr; Save best checkpoint</li>
     </ol>
 
-    <h3>Why This Helps</h3>
+    <h3>Rationale</h3>
     <ul>
-        <li>Experts start from a shared representation, making their weights more &ldquo;compatible&rdquo;
-            for later merging/consolidation.</li>
-        <li>Later experts benefit from features learned by earlier experts (positive transfer).</li>
-        <li>The unified output head means all 18 action Q-values get reasonable initialization.</li>
-        <li>This is particularly important for HTCL, where the closed-form Taylor update assumes
-            expert weights are &ldquo;close&rdquo; to the global model. Starting from global ensures the
-            drift &delta;<sub>d</sub> = w<sub>expert</sub> &minus; w<sub>global</sub> is small.</li>
+        <li>Independent initialization avoids coupling between the sequential training order&mdash;the
+            order of games does not affect individual expert quality.</li>
+        <li>Each expert is free to find the best representation for its specific game without
+            being biased by features from other games.</li>
+        <li>The consolidation methods (EWC, Distillation, HTCL) are specifically designed to
+            merge independently trained experts. They do not require experts to start from a
+            common initialization.</li>
+        <li>For HTCL, the initial global model for consolidation is simply the parameter average
+            of all experts: w<sub>global</sub> = (1/T) &middot; &Sigma; w<sub>expert_t</sub>.
+            The Taylor expansion operates from this averaged starting point.</li>
     </ul>
+
+    <div class="callout info">
+        <strong>Note:</strong> Previous versions of this pipeline used global-to-local initialization
+        (initializing each expert from a shared running average). This was removed because it
+        coupled expert quality to training order and did not provide consistent benefits for
+        the consolidation methods used here.
+    </div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -782,7 +779,7 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
     <p>with &gamma; = 0.95, giving exponentially decayed importance.</p>
 
     <h3>Step 3: Consolidation Objective</h3>
-    <p>Starting from the parameter-averaged global model, optimize:</p>
+    <p>Starting from the parameter average of all experts, optimize:</p>
     <div class="equation">
         L = L<sub>EWC</sub> + L<sub>avg</sub>
     </div>
@@ -826,8 +823,8 @@ Output:  Linear(1024 &rarr; 18)   # Q-values for all 18 actions</code></pre>
 
     <h3>Step 2: Distillation Loss (Per Task)</h3>
     <p>Given a batch of states from task <em>t</em>'s replay buffer:</p>
-<pre><code>Q_teacher = frozen expert_t(states)  # shape: (batch, 18)
-Q_student = global_model(states)     # shape: (batch, 18)</code></pre>
+<pre><code>Q_teacher = frozen expert_t(states)  # shape: (batch, 6)
+Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     <p>Normalize per task and compute soft targets:</p>
     <div class="equation">
         p<sub>teacher</sub> = softmax(Q&#770;<sub>teacher</sub> / &tau;) &nbsp;&nbsp;&nbsp;
@@ -930,7 +927,7 @@ Q_student = global_model(states)     # shape: (batch, 18)</code></pre>
     regardless of Fisher values.</p>
 
     <h3>Catch-Up Iterations</h3>
-    <p>After the initial Taylor update for task <em>t</em>, we perform <code>catch_up_iterations=2</code>
+    <p>After the initial Taylor update for task <em>t</em>, we perform <code>catch_up_iterations=10</code>
     refinement steps:</p>
     <ol>
         <li>Recompute the gradient <strong>g</strong> at the <em>new</em> global position
@@ -951,7 +948,7 @@ Q_student = global_model(states)     # shape: (batch, 18)</code></pre>
 
     <div class="callout success">
         <strong>Effect:</strong> Without catch-up, we get a single Newton-like step that may overshoot.
-        With 2 catch-up iterations, we achieve significantly better convergence in practice,
+        With 10 catch-up iterations, we achieve significantly better convergence in practice,
         as the gradient is re-evaluated at the updated position.
     </div>
 </section>
@@ -1009,25 +1006,24 @@ Q_student = global_model(states)     # shape: (batch, 18)</code></pre>
     <table>
         <tr><th>Category</th><th>Parameter</th><th>Default</th><th>Debug</th></tr>
         <tr><td class="category cat-model" rowspan="4">Model</td>
-            <td>Conv channels</td><td>[64, 128, 128]</td><td>same</td></tr>
-        <tr><td>FC hidden</td><td>1024</td><td>same</td></tr>
-        <tr><td>Unified actions</td><td>18</td><td>same</td></tr>
-        <tr><td>Total params</td><td>~6.7M</td><td>same</td></tr>
+            <td>Conv channels</td><td>[32, 64, 64]</td><td>same</td></tr>
+        <tr><td>FC hidden</td><td>512</td><td>same</td></tr>
+        <tr><td>Union actions</td><td>6 (computed at runtime)</td><td>same</td></tr>
+        <tr><td>Total params</td><td>~1.7M</td><td>same</td></tr>
 
         <tr><td class="category cat-training" rowspan="8">Training</td>
             <td>Total timesteps</td><td>1,000,000</td><td>5,000</td></tr>
         <tr><td>Learning rate</td><td>1e-4</td><td>same</td></tr>
         <tr><td>Batch size</td><td>32</td><td>same</td></tr>
         <tr><td>Gamma (discount)</td><td>0.99</td><td>same</td></tr>
-        <tr><td>Buffer size</td><td>100,000</td><td>1,000</td></tr>
+        <tr><td>Buffer size</td><td>200,000</td><td>1,000</td></tr>
         <tr><td>Eps decay steps</td><td>250,000</td><td>same</td></tr>
-        <tr><td>Target update freq</td><td>1,000</td><td>same</td></tr>
+        <tr><td>Target update freq</td><td>2,500</td><td>same</td></tr>
         <tr><td>Gradient clip</td><td>10.0</td><td>same</td></tr>
 
-        <tr><td class="category cat-norm" rowspan="3">Normalization</td>
-            <td>Method</td><td>running_stats</td><td>same</td></tr>
+        <tr><td class="category cat-norm" rowspan="2">Normalization</td>
+            <td>Method</td><td>popart</td><td>same</td></tr>
         <tr><td>Momentum</td><td>0.01</td><td>same</td></tr>
-        <tr><td>Clip range</td><td>10.0</td><td>same</td></tr>
 
         <tr><td class="category cat-ewc" rowspan="4">EWC</td>
             <td>Lambda</td><td>5,000</td><td>same</td></tr>
@@ -1046,7 +1042,7 @@ Q_student = global_model(states)     # shape: (batch, 18)</code></pre>
             <td>Lambda</td><td>1.0</td><td>same</td></tr>
         <tr><td>Lambda auto-adjust</td><td>true</td><td>same</td></tr>
         <tr><td>Fisher samples</td><td>2,000</td><td>100</td></tr>
-        <tr><td>Catch-up iters</td><td>2</td><td>same</td></tr>
+        <tr><td>Catch-up iters</td><td>10</td><td>same</td></tr>
         <tr><td>Eta (step size)</td><td>0.9</td><td>same</td></tr>
 
         <tr><td class="category cat-eval">Evaluation</td>

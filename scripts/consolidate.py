@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.dqn import DQNNetwork
 from src.data.replay_buffer import ReplayBuffer
-from src.data.atari_wrappers import get_valid_actions, make_atari_env
+from src.data.atari_wrappers import get_valid_actions, make_atari_env, compute_union_action_space
 from src.consolidation.ewc import EWCConsolidator
 from src.consolidation.distillation import DistillationConsolidator
 from src.consolidation.htcl import HTCLConsolidator
@@ -45,7 +45,8 @@ def build_model(config: dict, device: str) -> DQNNetwork:
 
 
 def collect_replay_data(
-    env_id: str, model: DQNNetwork, config: dict, device: str, num_samples: int
+    env_id: str, model: DQNNetwork, config: dict, device: str, num_samples: int,
+    union_actions: list,
 ) -> ReplayBuffer:
     """Collect replay data by running the expert in the environment.
 
@@ -62,6 +63,7 @@ def collect_replay_data(
     env_cfg = config["env"]
     env = make_atari_env(
         env_id=env_id,
+        union_actions=union_actions,
         seed=config["seed"],
         frame_stack=env_cfg["frame_stack"],
         frame_skip=env_cfg["frame_skip"],
@@ -71,7 +73,7 @@ def collect_replay_data(
         clip_reward=env_cfg["clip_reward"],
     )
 
-    valid_actions = get_valid_actions(env_id)
+    valid_actions = get_valid_actions(env_id, union_actions)
     buffer = ReplayBuffer(
         capacity=num_samples,
         frame_stack=env_cfg["frame_stack"],
@@ -111,7 +113,7 @@ def collect_replay_data(
 
 
 def load_expert_results(
-    config: dict, tag: str, device: str
+    config: dict, tag: str, device: str, union_actions: list,
 ) -> list:
     """Load expert checkpoints and rebuild results structure.
 
@@ -135,13 +137,12 @@ def load_expert_results(
         env_id = expert_info["env_id"]
         valid_actions = expert_info["valid_actions"]
 
-        # Load best checkpoint
         ckpt_path = os.path.join(
             checkpoint_dir, tag, f"expert_{game_name}_best.pt"
         )
         if not os.path.exists(ckpt_path):
-            ckpt_path = os.path.join(
-                checkpoint_dir, tag, f"expert_{game_name}_final.pt"
+            raise FileNotFoundError(
+                f"No best checkpoint found for {game_name} at {ckpt_path}"
             )
 
         checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
@@ -160,7 +161,7 @@ def load_expert_results(
 
         print(f"Collecting {buffer_size} replay samples for {game_name}...")
         replay_buffer = collect_replay_data(
-            env_id, model, config, device, buffer_size
+            env_id, model, config, device, buffer_size, union_actions
         )
 
         results.append(
@@ -230,6 +231,11 @@ def main():
     logger.info(f"Config: {args.config}")
     logger.info(f"Task sequence: {config['task_sequence']}")
 
+    # Compute union action space
+    union_actions = compute_union_action_space(config["task_sequence"])
+    config["model"]["unified_action_dim"] = len(union_actions)
+    logger.info(f"Union action space: {union_actions} ({len(union_actions)} actions)")
+
     # Log method-specific hyperparameters
     if args.method == "ewc":
         ewc_cfg = config["ewc"]
@@ -253,7 +259,7 @@ def main():
     import time as _time
     _t0 = _time.time()
     logger.info("Loading expert checkpoints and collecting replay data...")
-    expert_results = load_expert_results(config, args.tag, device)
+    expert_results = load_expert_results(config, args.tag, device, union_actions)
     logger.info(f"Loaded {len(expert_results)} expert models in {_time.time()-_t0:.1f}s.")
     for r in expert_results:
         logger.info(f"  {r['game_name']}: best_reward={r['best_reward']:.2f}, "

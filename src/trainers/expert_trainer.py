@@ -1,7 +1,7 @@
 """
 Expert Trainer: trains a single DQN agent on one Atari task.
 
-Supports initialization from a global model checkpoint (for CRL pipeline).
+Each expert starts from random initialization and trains independently.
 """
 
 import os
@@ -85,19 +85,20 @@ class ExpertTrainer:
     Args:
         config: Configuration dictionary.
         env_id: Gymnasium environment ID (e.g., 'PongNoFrameskip-v4').
+        union_actions: Sorted list of ALE action indices forming the union.
         logger: Logger instance for metrics.
         device: Torch device string.
-        global_weights: Optional global model weights for initialization.
         experiment_tag: Optional tag for checkpoint naming.
+        resume_checkpoint: Optional path to resume training from.
     """
 
     def __init__(
         self,
         config: Dict[str, Any],
         env_id: str,
+        union_actions: List[int],
         logger: Logger,
         device: str = "cpu",
-        global_weights: Optional[dict] = None,
         experiment_tag: str = "",
         resume_checkpoint: Optional[str] = None,
     ):
@@ -106,9 +107,10 @@ class ExpertTrainer:
         self.logger = logger
         self.device = device
         self.experiment_tag = experiment_tag
+        self.union_actions = union_actions
 
-        # Get valid actions for this game
-        self.valid_actions = get_valid_actions(env_id)
+        # Get valid actions for this game (indices into union)
+        self.valid_actions = get_valid_actions(env_id, union_actions)
         self.game_name = env_id.replace("NoFrameskip-v4", "")
 
         logger.info(
@@ -127,18 +129,16 @@ class ExpertTrainer:
         self.eval_steps: List[int] = []
         self.eval_rewards: List[float] = []
 
-        # Resume from checkpoint if provided (has priority over global_weights)
+        # Resume from checkpoint if provided
         if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
             logger.info(f"Resuming expert from checkpoint: {resume_checkpoint}")
             self.agent.load(resume_checkpoint)
-        elif global_weights is not None:
-            logger.info("Initializing expert from global model weights.")
-            self.agent.load_policy_weights(global_weights)
 
         # Create environment
         env_cfg = config["env"]
         self.env = make_atari_env(
             env_id=env_id,
+            union_actions=union_actions,
             seed=config["seed"],
             frame_stack=env_cfg["frame_stack"],
             frame_skip=env_cfg["frame_skip"],
@@ -243,6 +243,16 @@ class ExpertTrainer:
                     self.logger.info(
                         f"[{self.game_name}] New best model saved: {eval_reward:.2f}"
                     )
+                    # Clean up periodic step checkpoints (keep only best)
+                    import glob
+                    step_ckpts = glob.glob(
+                        os.path.join(
+                            checkpoint_dir, self.experiment_tag,
+                            f"expert_{self.game_name}_step*.pt"
+                        )
+                    )
+                    for ckpt in step_ckpts:
+                        os.remove(ckpt)
 
             # Periodic checkpoint
             if step % save_freq == 0:
@@ -252,14 +262,6 @@ class ExpertTrainer:
                     f"expert_{self.game_name}_step{step}.pt",
                 )
                 self.agent.save(ckpt_path)
-
-        # Final save
-        final_path = os.path.join(
-            checkpoint_dir,
-            self.experiment_tag,
-            f"expert_{self.game_name}_final.pt",
-        )
-        self.agent.save(final_path)
 
         final_eval = self.evaluate(eval_episodes)
         self.logger.info(
@@ -299,6 +301,7 @@ class ExpertTrainer:
         env_cfg = self.config["env"]
         eval_env = make_atari_env(
             env_id=self.env_id,
+            union_actions=self.union_actions,
             seed=self.config["seed"] + 1000,
             frame_stack=env_cfg["frame_stack"],
             frame_skip=env_cfg["frame_skip"],

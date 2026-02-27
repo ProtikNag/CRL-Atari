@@ -2,92 +2,162 @@
 Atari environment wrappers following DeepMind-style preprocessing.
 
 Handles frame stacking, skipping, grayscale conversion, resizing,
-reward clipping, episodic life, and fire-on-reset.
+reward clipping, episodic life, fire-on-reset, and union action mapping.
 """
 
 import gymnasium as gym
 import numpy as np
 import cv2
 from collections import deque
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 # Register ALE environments with gymnasium
 import ale_py
 gym.register_envs(ale_py)
 
 
-class UnifiedActionWrapper(gym.Wrapper):
-    """Map unified 18-action space indices to local environment action indices.
+# Full ALE 18-action meaning table (correct indices!)
+ALE_ACTION_MEANINGS: Dict[int, str] = {
+    0: "NOOP", 1: "FIRE", 2: "UP", 3: "RIGHT", 4: "LEFT",
+    5: "DOWN", 6: "UPRIGHT", 7: "UPLEFT", 8: "DOWNRIGHT",
+    9: "DOWNLEFT", 10: "UPFIRE", 11: "RIGHTFIRE", 12: "LEFTFIRE",
+    13: "DOWNFIRE", 14: "UPRIGHTFIRE", 15: "UPLEFTFIRE",
+    16: "DOWNRIGHTFIRE", 17: "DOWNLEFTFIRE",
+}
 
-    The agent outputs actions in the full 18-action Atari space (e.g., 0, 1, 3,
-    4, 11, 12 for Pong). The ALE environment expects local indices (0..n-1).
-    This wrapper performs the translation.
+
+def compute_union_action_space(task_sequence: List[str]) -> List[int]:
+    """Compute the union of minimal action sets across all tasks.
+
+    Creates a temporary environment for each game to query its minimal
+    action set, then returns the sorted union.
+
+    Args:
+        task_sequence: List of Atari env IDs, e.g. ["PongNoFrameskip-v4", ...].
+
+    Returns:
+        Sorted list of ALE action indices that form the union.
+    """
+    union = set()
+    for env_id in task_sequence:
+        env = gym.make(env_id)
+        minimal = env.unwrapped.ale.getMinimalActionSet()
+        union.update(int(a) for a in minimal)
+        env.close()
+    return sorted(union)
+
+
+def get_valid_actions(env_id: str, union_actions: List[int]) -> List[int]:
+    """Return indices into the union action list that are valid for env_id.
+
+    Args:
+        env_id: Atari env ID, e.g. "PongNoFrameskip-v4".
+        union_actions: The union action list (sorted ALE action ints).
+
+    Returns:
+        List of indices into union_actions that the game actually uses.
+        E.g. if union=[0,1,3,4,11,12] and game uses [0,1,3,4], returns [0,1,2,3].
+    """
+    env = gym.make(env_id)
+    minimal = set(int(a) for a in env.unwrapped.ale.getMinimalActionSet())
+    env.close()
+    return [i for i, ale_action in enumerate(union_actions) if ale_action in minimal]
+
+
+class UnionActionWrapper(gym.Wrapper):
+    """Map union-space action indices to ALE action indices.
+
+    The agent outputs actions in the union action space (e.g. indices 0..5
+    for [NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE]). The ALE environment
+    expects actions in its LOCAL minimal action set (0..n-1). This wrapper
+    translates from union index -> ALE action -> local index.
+
+    IMPORTANT: This wrapper must be the OUTERMOST wrapper so that all inner
+    wrappers (FireResetEnv, EpisodicLifeEnv) issue local-index actions.
     """
 
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, union_actions: List[int]):
         super().__init__(env)
-        # Get the minimal action set (ALE Action enums -> ints)
+        # Get the minimal action set for this specific game
         minimal_actions = env.unwrapped.ale.getMinimalActionSet()
-        self.unified_to_local = {
-            int(a): i for i, a in enumerate(minimal_actions)
-        }
-        self.local_to_unified = {
-            i: int(a) for i, a in enumerate(minimal_actions)
-        }
+        self.ale_to_local = {int(a): i for i, a in enumerate(minimal_actions)}
+        self.union_actions = union_actions
 
-    def step(self, action):
-        # Convert unified action index to local environment index
-        local_action = self.unified_to_local.get(action, 0)  # default NOOP
+        # Override action space to union size
+        self.action_space = gym.spaces.Discrete(len(union_actions))
+
+    def step(self, action: int):
+        """Translate union-space action to local action and step."""
+        ale_action = self.union_actions[action]
+        local_action = self.ale_to_local.get(ale_action, 0)  # fallback NOOP
         return self.env.step(local_action)
 
 
 class NoopResetEnv(gym.Wrapper):
-    """Execute a random number of no-ops on reset."""
+    """Execute a random number of NOOPs on reset.
+
+    Adds stochasticity to the initial state, preventing the agent from
+    memorizing fixed start positions. The NOOP action (0) is used.
+
+    Args:
+        env: The wrapped environment.
+        noop_max: Maximum number of NOOPs to execute. Default 30 follows
+            the DeepMind Atari benchmark convention and provides sufficient
+            initial state diversity without wasting too many frames.
+    """
 
     def __init__(self, env: gym.Env, noop_max: int = 30):
         super().__init__(env)
         self.noop_max = noop_max
-        self.noop_action = 0  # NOOP is always action 0
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         noops = np.random.randint(1, self.noop_max + 1)
         for _ in range(noops):
-            obs, _, terminated, truncated, info = self.env.step(self.noop_action)
+            obs, _, terminated, truncated, info = self.env.step(0)
             if terminated or truncated:
                 obs, info = self.env.reset(**kwargs)
         return obs, info
 
 
-class MaxAndSkipEnv(gym.Wrapper):
-    """Return max over last 2 frames and skip intermediate frames."""
+class FireResetEnv(gym.Wrapper):
+    """Press FIRE on reset for environments that require it (e.g. Breakout).
 
-    def __init__(self, env: gym.Env, skip: int = 4):
+    Some Atari games require the FIRE action to start a new episode or life.
+    This wrapper detects the FIRE action in meanings and issues it on reset.
+    """
+
+    def __init__(self, env: gym.Env):
         super().__init__(env)
-        self._skip = skip
-        self._obs_buffer = deque(maxlen=2)
-
-    def step(self, action):
-        total_reward = 0.0
-        terminated = truncated = False
-        for _ in range(self._skip):
-            obs, reward, terminated, truncated, info = self.env.step(action)
-            self._obs_buffer.append(obs)
-            total_reward += reward
-            if terminated or truncated:
-                break
-        max_frame = np.max(np.stack(self._obs_buffer), axis=0)
-        return max_frame, total_reward, terminated, truncated, info
+        assert env.unwrapped.get_action_meanings()[1] == "FIRE"
+        assert len(env.unwrapped.get_action_meanings()) >= 3
 
     def reset(self, **kwargs):
-        self._obs_buffer.clear()
-        obs, info = self.env.reset(**kwargs)
-        self._obs_buffer.append(obs)
+        self.env.reset(**kwargs)
+        obs, _, terminated, truncated, _ = self.env.step(1)
+        if terminated or truncated:
+            obs, _ = self.env.reset(**kwargs)
+        obs, _, terminated, truncated, info = self.env.step(2)
+        if terminated or truncated:
+            obs, info = self.env.reset(**kwargs)
         return obs, info
 
 
 class EpisodicLifeEnv(gym.Wrapper):
-    """Make end-of-life == end-of-episode (but only reset on true game over)."""
+    """Signal episode end on life loss during training.
+
+    During training this makes every life loss a terminal signal, which helps
+    the agent learn to avoid losing lives. The environment itself is NOT
+    actually reset (the game continues), only the done flag is set.
+
+    For evaluation (episodic_life=False in make_atari_env), this wrapper is
+    NOT applied, so the agent plays a full game to true episode end.
+
+    Note: This only affects games with a lives mechanic:
+      - Breakout: 5 lives
+      - SpaceInvaders: 3 lives
+      - Pong: 0 lives (no lives mechanic, so this wrapper is inert)
+    """
 
     def __init__(self, env: gym.Env):
         super().__init__(env)
@@ -107,40 +177,50 @@ class EpisodicLifeEnv(gym.Wrapper):
         if self.was_real_done:
             obs, info = self.env.reset(**kwargs)
         else:
-            # No-op step to advance from terminal/lost life state
             obs, _, _, _, info = self.env.step(0)
         self.lives = self.env.unwrapped.ale.lives()
         return obs, info
 
 
-class FireResetEnv(gym.Wrapper):
-    """Press FIRE on reset for games that require it."""
+class MaxAndSkipEnv(gym.Wrapper):
+    """Return max over last 2 frames, repeat action for skip frames.
 
-    def __init__(self, env: gym.Env):
+    Takes the pixel-wise maximum of the last 2 raw frames to handle
+    flickering sprites (a common ALE artifact). The action is repeated
+    for `skip` consecutive frames to speed up training.
+    """
+
+    def __init__(self, env: gym.Env, skip: int = 4):
         super().__init__(env)
-        assert env.unwrapped.get_action_meanings()[1] == "FIRE"
-
-    def reset(self, **kwargs):
-        self.env.reset(**kwargs)
-        obs, _, terminated, truncated, info = self.env.step(1)
-        if terminated or truncated:
-            obs, info = self.env.reset(**kwargs)
-        obs, _, terminated, truncated, info = self.env.step(2)
-        if terminated or truncated:
-            obs, info = self.env.reset(**kwargs)
-        return obs, info
-
-
-class ClipRewardEnv(gym.Wrapper):
-    """Clip reward to {-1, 0, +1}."""
+        self._obs_buffer = np.zeros(
+            (2,) + env.observation_space.shape, dtype=np.uint8
+        )
+        self._skip = skip
 
     def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        return obs, np.sign(reward), terminated, truncated, info
+        total_reward = 0.0
+        terminated = truncated = False
+        for i in range(self._skip):
+            obs, reward, terminated, truncated, info = self.env.step(action)
+            if i == self._skip - 2:
+                self._obs_buffer[0] = obs
+            if i == self._skip - 1:
+                self._obs_buffer[1] = obs
+            total_reward += reward
+            if terminated or truncated:
+                break
+        max_frame = self._obs_buffer.max(axis=0)
+        return max_frame, total_reward, terminated, truncated, info
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
 
 
 class WarpFrame(gym.ObservationWrapper):
-    """Convert to grayscale and resize to (screen_size, screen_size)."""
+    """Convert RGB frames to grayscale and resize.
+
+    Standard Atari preprocessing: 210x160 RGB -> 84x84 grayscale.
+    """
 
     def __init__(self, env: gym.Env, width: int = 84, height: int = 84):
         super().__init__(env)
@@ -157,17 +237,21 @@ class WarpFrame(gym.ObservationWrapper):
 
 
 class FrameStack(gym.Wrapper):
-    """Stack the last k frames as a single observation. Channel-first output."""
+    """Stack the last k frames as a single observation.
+
+    Frame stacking gives the agent a sense of motion and velocity, critical
+    for Atari games where a single frame is ambiguous (e.g., ball direction
+    in Pong). Standard k=4 is used.
+    """
 
     def __init__(self, env: gym.Env, k: int = 4):
         super().__init__(env)
         self.k = k
-        self.frames = deque(maxlen=k)
+        self.frames = deque([], maxlen=k)
         shape = env.observation_space.shape
-        # Output shape: (k, H, W)
         self.observation_space = gym.spaces.Box(
             low=0, high=255,
-            shape=(k, shape[0], shape[1]),
+            shape=(shape[0], shape[1], shape[2] * k),
             dtype=np.uint8,
         )
 
@@ -182,32 +266,20 @@ class FrameStack(gym.Wrapper):
         self.frames.append(obs)
         return self._get_obs(), reward, terminated, truncated, info
 
-    def _get_obs(self) -> np.ndarray:
-        frames = np.concatenate(list(self.frames), axis=-1)  # (H, W, k)
-        return np.transpose(frames, (2, 0, 1))  # (k, H, W)
+    def _get_obs(self):
+        return np.concatenate(list(self.frames), axis=2)
 
 
-def get_valid_actions(env_id: str) -> List[int]:
-    """Get the list of valid action indices for a given Atari game.
+class ClipRewardEnv(gym.RewardWrapper):
+    """Clip rewards to {-1, 0, +1} by sign."""
 
-    Creates a temporary environment to query the available actions.
-
-    Args:
-        env_id: Gymnasium environment ID (e.g., 'PongNoFrameskip-v4').
-
-    Returns:
-        Sorted list of valid action indices in the full 18-action space.
-    """
-    env = gym.make(env_id)
-    # ale.getMinimalActionSet gives the game-specific actions as Action enums
-    minimal_actions = env.unwrapped.ale.getMinimalActionSet()
-    valid = sorted([int(a) for a in minimal_actions])
-    env.close()
-    return valid
+    def reward(self, reward):
+        return float(np.sign(reward))
 
 
 def make_atari_env(
     env_id: str,
+    union_actions: List[int],
     seed: int = 42,
     frame_stack: int = 4,
     frame_skip: int = 4,
@@ -215,40 +287,56 @@ def make_atari_env(
     noop_max: int = 30,
     episodic_life: bool = True,
     clip_reward: bool = True,
+    render_mode: Optional[str] = None,
 ) -> gym.Env:
-    """Create a fully wrapped Atari environment.
+    """Create a fully-wrapped Atari environment.
+
+    Wrapper order (inside-out):
+        gym.make -> NoopResetEnv -> MaxAndSkipEnv -> [EpisodicLifeEnv]
+        -> FireResetEnv -> WarpFrame -> [ClipRewardEnv] -> FrameStack
+        -> UnionActionWrapper  (OUTERMOST)
+
+    The UnionActionWrapper is outermost so that all inner wrappers
+    (especially FireResetEnv) issue actions in the local action space.
+    The agent interacts only through the union action space.
 
     Args:
-        env_id: Gymnasium environment ID.
-        seed: Random seed.
-        frame_stack: Number of frames to stack.
-        frame_skip: Number of frames to skip (via MaxAndSkip).
-        screen_size: Width/height of resized frames.
-        noop_max: Max no-op actions on reset.
-        episodic_life: Treat loss of life as episode end.
-        clip_reward: Clip reward to {-1, 0, +1}.
+        env_id: Atari env ID, e.g. "PongNoFrameskip-v4".
+        union_actions: Sorted list of ALE action indices forming the union.
+        seed: Random seed for environment.
+        frame_stack: Number of frames to stack (default 4).
+        frame_skip: Number of frames to repeat each action (default 4).
+        screen_size: Resize dimension (default 84).
+        noop_max: Max NOOPs on reset (default 30).
+        episodic_life: If True, signal done on life loss (training only).
+        clip_reward: If True, clip rewards to {-1, 0, +1}.
+        render_mode: Optional render mode (e.g. "rgb_array").
 
     Returns:
-        Wrapped Gymnasium environment.
+        Fully wrapped Atari environment with union-space actions.
     """
-    env = gym.make(env_id, render_mode=None)
-    # Map unified 18-action indices to local env indices FIRST
-    env = UnifiedActionWrapper(env)
+    kwargs = {"render_mode": render_mode} if render_mode else {}
+    env = gym.make(env_id, **kwargs)
+    env.reset(seed=seed)
+
+    # Inner wrappers operate on local (minimal) action space
     env = NoopResetEnv(env, noop_max=noop_max)
     env = MaxAndSkipEnv(env, skip=frame_skip)
 
     if episodic_life:
         env = EpisodicLifeEnv(env)
 
-    # Fire reset if applicable
-    action_meanings = env.unwrapped.get_action_meanings()
-    if "FIRE" in action_meanings and len(action_meanings) > 2:
+    if "FIRE" in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
+
+    env = WarpFrame(env, width=screen_size, height=screen_size)
 
     if clip_reward:
         env = ClipRewardEnv(env)
 
-    env = WarpFrame(env, width=screen_size, height=screen_size)
     env = FrameStack(env, k=frame_stack)
+
+    # OUTERMOST: union action mapping (agent -> union index -> local index)
+    env = UnionActionWrapper(env, union_actions=union_actions)
 
     return env

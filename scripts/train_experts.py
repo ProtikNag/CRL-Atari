@@ -1,8 +1,8 @@
 """
 Train expert DQN agents sequentially on Atari tasks.
 
-Each expert is initialized from the current global model state
-(to keep local models close to global, per HTCL paper).
+Each expert starts from random initialization and trains independently.
+The union action space is computed at runtime from all games.
 
 Usage:
     python scripts/train_experts.py [--debug] [--config CONFIG_PATH]
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.dqn import DQNNetwork
 from src.trainers.expert_trainer import ExpertTrainer
-from src.data.atari_wrappers import get_valid_actions
+from src.data.atari_wrappers import get_valid_actions, compute_union_action_space
 from src.utils.config import get_effective_config, save_config
 from src.utils.seed import set_seed
 from src.utils.logger import setup_logger
@@ -88,6 +88,11 @@ def main():
     logger.info(f"Debug mode: {config['debug']['enabled']}")
     logger.info(f"Task sequence: {config['task_sequence']}")
 
+    # Compute union action space from all games
+    union_actions = compute_union_action_space(config["task_sequence"])
+    config["model"]["unified_action_dim"] = len(union_actions)
+    logger.info(f"Union action space: {union_actions} ({len(union_actions)} actions)")
+
     # Save effective config
     config_save_path = os.path.join(
         config["logging"]["log_dir"], f"experts_{args.tag}", "effective_config.yaml"
@@ -103,13 +108,10 @@ def main():
     except Exception:
         pass
 
-    # Build initial global model
+    # Build model for logging param count
     global_model = build_model(config, device)
     logger.info(f"Model parameters: {global_model.num_parameters:,}")
-
-    # Initialize from checkpoint if available
-    init_from_global = config["consolidation"].get("init_from_global", True)
-    global_weights = global_model.state_dict()
+    del global_model  # Not used further — each expert starts from random init
 
     # Train experts sequentially
     all_results = []
@@ -128,15 +130,12 @@ def main():
         if resume_ckpt:
             logger.info(f"Found existing best checkpoint: {resume_ckpt}")
 
-        # Initialize expert from global state (only if not resuming)
-        expert_init_weights = global_weights if (init_from_global and resume_ckpt is None) else None
-
         trainer = ExpertTrainer(
             config=config,
             env_id=env_id,
+            union_actions=union_actions,
             logger=logger,
             device=device,
-            global_weights=expert_init_weights,
             experiment_tag=args.tag,
             resume_checkpoint=resume_ckpt,
         )
@@ -144,33 +143,16 @@ def main():
         result = trainer.train()
         all_results.append(result)
 
-        # Clean up: remove step checkpoints and final checkpoint, keep only best
+        # Clean up: remove step checkpoints, keep only best
         step_ckpts = glob.glob(
             os.path.join(checkpoint_dir, args.tag, f"expert_{game_name}_step*.pt")
-        )
-        final_ckpt = os.path.join(
-            checkpoint_dir, args.tag, f"expert_{game_name}_final.pt"
         )
         removed_count = 0
         for ckpt in step_ckpts:
             os.remove(ckpt)
             removed_count += 1
-        if os.path.exists(final_ckpt):
-            os.remove(final_ckpt)
-            removed_count += 1
         if removed_count > 0:
             logger.info(f"Cleaned up {removed_count} intermediate checkpoints for {game_name}.")
-
-        # Update global weights to the average of all experts so far
-        # (simple baseline; HTCL/EWC will do better consolidation)
-        if init_from_global:
-            avg_sd = {}
-            for key in global_weights:
-                avg_sd[key] = torch.stack(
-                    [r["policy_state_dict"][key].float() for r in all_results]
-                ).mean(dim=0)
-            global_weights = avg_sd
-            global_model.load_state_dict(global_weights)
 
         logger.info(
             f"Expert {task_idx + 1} complete: "
