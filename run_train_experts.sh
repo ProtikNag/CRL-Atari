@@ -15,8 +15,8 @@
 # or report generation — just expert training.
 #
 # Usage (interactive):
-#   ./run_train_experts.sh                  # Full training (1M steps/expert)
-#   ./run_train_experts.sh --debug          # Fast debug run (5K steps)
+#   ./run_train_experts.sh                  # Full training (3M steps/expert)
+#   ./run_train_experts.sh --debug          # Fast debug run (10K steps)
 #   ./run_train_experts.sh --tag myexp      # Custom experiment tag
 #
 # Usage (SLURM):
@@ -81,7 +81,7 @@ while [ $# -gt 0 ]; do
             echo "Usage: ./run_train_experts.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --debug          Enable debug mode (5K steps per expert)"
+            echo "  --debug          Enable debug mode (10K steps per expert)"
             echo "  --tag TAG        Experiment tag (default: 'default')"
             echo "  --device DEVICE  Device: cpu, cuda, mps (auto-detected)"
             echo "  --config PATH    Config file path (default: configs/base.yaml)"
