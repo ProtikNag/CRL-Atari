@@ -88,14 +88,14 @@ pip install gymnasium[accept-rom-license]
 # Full experiment (trains experts, consolidates, evaluates, plots)
 ./run_all.sh
 
-# Debug mode (fast, ~5000 steps per expert)
+# Debug mode (fast, ~10K steps per expert)
 ./run_all.sh --debug
 
 # Custom tag and device
 ./run_all.sh --tag experiment_v1 --device cuda
 ```
 
-The pipeline trains each expert for **1.5M environment steps** (configurable in `configs/base.yaml`). Reward curves are automatically generated during training and saved to `results/figures/`.
+The pipeline trains each expert for **3M environment steps** (12M frames with frame-skip=4, configurable in `configs/base.yaml`). Reward curves are automatically generated during training and saved to `results/figures/`.
 
 ### 3. Debug Locally (No Shell Script)
 
@@ -202,7 +202,7 @@ $$\mathbf{w}^{(t)} = \mathbf{w}^{(t-1)} + (\mathbf{H} + \lambda \mathbf{I})^{-1}
 
 All hyperparameters live in [`configs/base.yaml`](configs/base.yaml). The config system supports:
 
-- **Debug mode**: Set `--debug` to use reduced training (~5000 steps). Ideal for testing pipeline correctness.
+- **Debug mode**: Set `--debug` to use reduced training (~10K steps). Ideal for testing pipeline correctness.
 - **Override configs**: Pass `--override-config path/to/override.yaml` to selectively override base settings.
 - **Per-run saving**: Each run saves its effective config to the log directory.
 
@@ -261,7 +261,7 @@ After a full run, you'll find:
 ./run_all.sh [OPTIONS]
 
 Options:
-  --debug              Debug mode (fast training, ~5K steps)
+  --debug              Debug mode (fast training, ~10K steps)
   --tag TAG            Experiment tag (default: 'default')
   --device DEVICE      Force device: cpu, cuda, mps
   --config PATH        Config file (default: configs/base.yaml)

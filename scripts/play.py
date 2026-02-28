@@ -102,14 +102,13 @@ def build_model(config: dict, device: str) -> DQNNetwork:
     ).to(device)
 
 
-def make_render_env(env_id: str, seed: int = 42) -> gym.Env:
-    """Create a raw Atari env with rgb_array rendering (no wrappers)."""
-    env = gym.make(env_id, render_mode="rgb_array")
-    return env
+def make_play_env(env_id: str, config: dict, union_actions: list) -> gym.Env:
+    """Create a single wrapped env for both agent observation and rendering.
 
-
-def make_agent_env(env_id: str, config: dict, union_actions: list) -> gym.Env:
-    """Create the wrapped env for agent observation (same as training, no clip_reward)."""
+    Uses render_mode='rgb_array' so that env.render() returns the raw RGB
+    frame from the underlying ALE, while the wrapper stack provides the
+    preprocessed (84x84 grayscale, frame-stacked) observations for the agent.
+    """
     from src.data.atari_wrappers import make_atari_env
     env_cfg = config["env"]
     return make_atari_env(
@@ -122,6 +121,7 @@ def make_agent_env(env_id: str, config: dict, union_actions: list) -> gym.Env:
         noop_max=env_cfg["noop_max"],
         episodic_life=False,
         clip_reward=False,
+        render_mode="rgb_array",
     )
 
 
@@ -246,19 +246,18 @@ def main():
         print("Install it with: pip install pygame")
         sys.exit(1)
 
-    # ── Create environments ───────────────────────────────────────────────
-    # Raw env for RGB rendering
-    render_env = make_render_env(env_id, seed=config["seed"])
-    # Wrapped env for agent observations
-    agent_env = make_agent_env(env_id, config, union_actions)
+    # ── Create environment ─────────────────────────────────────────────
+    # Single env: wrapper stack provides agent observations,
+    # env.render() returns raw RGB for the pygame display.
+    env = make_play_env(env_id, config, union_actions)
 
-    # ── Pygame setup ──────────────────────────────────────────────────────
+    # ── Pygame setup ──────────────────────────────────────────────────
     pygame.init()
     pygame.display.set_caption(f"CRL-Atari: {game_short} (Agent Playing)")
 
     # Get initial frame to determine dimensions
-    raw_obs, _ = render_env.reset()
-    frame = render_env.render()
+    obs, _ = env.reset()
+    frame = env.render()
     frame_h, frame_w = frame.shape[:2]
 
     # Scale window
@@ -278,15 +277,14 @@ def main():
     episode = 0
     max_episodes = args.episodes
 
-    def reset_both():
-        """Reset both environments and sync."""
+    def reset_episode():
+        """Reset the environment and start a new episode."""
         nonlocal episode
         episode += 1
-        r_obs, _ = render_env.reset(seed=config["seed"] + episode)
-        a_obs, _ = agent_env.reset(seed=config["seed"] + episode)
-        return r_obs, a_obs
+        obs, _ = env.reset()
+        return obs
 
-    _, agent_obs = reset_both()
+    agent_obs = reset_episode()
     total_reward = 0.0
     step_count = 0
     episode_rewards = []
@@ -301,7 +299,7 @@ def main():
                 if event.key in (pygame.K_q, pygame.K_ESCAPE):
                     running = False
                 elif event.key == pygame.K_r:
-                    _, agent_obs = reset_both()
+                    agent_obs = reset_episode()
                     total_reward = 0.0
                     step_count = 0
                 elif event.key in (pygame.K_p, pygame.K_SPACE):
@@ -333,22 +331,13 @@ def main():
             masked_q = q_values + mask.unsqueeze(0)
             action = masked_q.argmax(dim=1).item()
 
-        # ── Step both environments ────────────────────────────────────
-        # Step render env (raw, action needs to be mapped from union to local)
-        # The agent env has UnionActionWrapper, but render env doesn't
-        minimal_actions = render_env.unwrapped.ale.getMinimalActionSet()
-        union_to_local = {int(a): i for i, a in enumerate(minimal_actions)}
-        ale_action = union_actions[action]
-        local_action = union_to_local.get(ale_action, 0)
-        raw_obs, raw_reward, raw_term, raw_trunc, _ = render_env.step(local_action)
-
-        # Step agent env (wrapped)
-        agent_obs, _, a_term, a_trunc, _ = agent_env.step(action)
-        total_reward += raw_reward
+        # ── Step the single environment ───────────────────────────────
+        agent_obs, reward, terminated, truncated, info = env.step(action)
+        total_reward += reward
         step_count += 1
 
-        # ── Render frame ──────────────────────────────────────────────
-        frame = render_env.render()
+        # ── Render frame from the same env ────────────────────────────
+        frame = env.render()
         # Convert to pygame surface
         surf = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
         surf = pygame.transform.scale(surf, (win_w, frame_h * scale))
@@ -370,7 +359,7 @@ def main():
         clock.tick(int(base_fps * speed))
 
         # ── Episode end ───────────────────────────────────────────────
-        if raw_term or raw_trunc:
+        if terminated or truncated:
             episode_rewards.append(total_reward)
             print(
                 f"Episode {episode}: reward = {total_reward:.1f} "
@@ -382,14 +371,13 @@ def main():
             else:
                 # Brief pause to show final score
                 time.sleep(0.5)
-                _, agent_obs = reset_both()
+                agent_obs = reset_episode()
                 total_reward = 0.0
                 step_count = 0
 
     # ── Cleanup ──────────────────────────────────────────────────────────
     pygame.quit()
-    render_env.close()
-    agent_env.close()
+    env.close()
 
     if episode_rewards:
         print(f"\nSession summary: {len(episode_rewards)} episodes")
