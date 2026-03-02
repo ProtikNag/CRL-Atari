@@ -501,9 +501,12 @@ class HTCLConsolidator:
                     consol_masked = consol_q + mask.unsqueeze(0)
                     consol_log_probs = F.log_softmax(consol_masked, dim=1)
 
-                    # KL(expert || consolidated)
+                    # KL(expert || consolidated) — restrict to valid
+                    # actions only to avoid NaN from 0 * log(0) at
+                    # invalid positions.
                     kl = F.kl_div(
-                        consol_log_probs, expert_probs,
+                        consol_log_probs[:, valid_actions],
+                        expert_probs[:, valid_actions],
                         reduction="batchmean",
                     )
                     total_kl += kl.item()
