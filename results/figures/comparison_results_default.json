@@ -1,0 +1,98 @@
+{
+  "Expert": [
+    {
+      "env_id": "PongNoFrameskip-v4",
+      "game_name": "Pong",
+      "mean_reward": 19.8,
+      "std_reward": 0.7916228058025278,
+      "min_reward": 19.0,
+      "max_reward": 21.0,
+      "median_reward": 20.0,
+      "num_episodes": 30
+    },
+    {
+      "env_id": "BreakoutNoFrameskip-v4",
+      "game_name": "Breakout",
+      "mean_reward": 386.06666666666666,
+      "std_reward": 35.05227841699055,
+      "min_reward": 316.0,
+      "max_reward": 405.0,
+      "median_reward": 403.0,
+      "num_episodes": 30
+    },
+    {
+      "env_id": "SpaceInvadersNoFrameskip-v4",
+      "game_name": "SpaceInvaders",
+      "mean_reward": 1188.3333333333333,
+      "std_reward": 111.26794486983012,
+      "min_reward": 995.0,
+      "max_reward": 1320.0,
+      "median_reward": 1175.0,
+      "num_episodes": 30
+    }
+  ],
+  "Distillation": [
+    {
+      "env_id": "PongNoFrameskip-v4",
+      "game_name": "Pong",
+      "mean_reward": -16.9,
+      "std_reward": 12.3,
+      "min_reward": -21.0,
+      "max_reward": 20.0,
+      "median_reward": -21.0,
+      "num_episodes": 30
+    },
+    {
+      "env_id": "BreakoutNoFrameskip-v4",
+      "game_name": "Breakout",
+      "mean_reward": 3.6,
+      "std_reward": 4.409081537009721,
+      "min_reward": 0.0,
+      "max_reward": 9.0,
+      "median_reward": 0.0,
+      "num_episodes": 30
+    },
+    {
+      "env_id": "SpaceInvadersNoFrameskip-v4",
+      "game_name": "SpaceInvaders",
+      "mean_reward": 265.3333333333333,
+      "std_reward": 182.16262575573023,
+      "min_reward": 125.0,
+      "max_reward": 565.0,
+      "median_reward": 155.0,
+      "num_episodes": 30
+    }
+  ],
+  "HTCL": [
+    {
+      "env_id": "PongNoFrameskip-v4",
+      "game_name": "Pong",
+      "mean_reward": -21.0,
+      "std_reward": 0.0,
+      "min_reward": -21.0,
+      "max_reward": -21.0,
+      "median_reward": -21.0,
+      "num_episodes": 30
+    },
+    {
+      "env_id": "BreakoutNoFrameskip-v4",
+      "game_name": "Breakout",
+      "mean_reward": 2.4,
+      "std_reward": 3.97994974842648,
+      "min_reward": 0.0,
+      "max_reward": 9.0,
+      "median_reward": 0.0,
+      "num_episodes": 30
+    },
+    {
+      "env_id": "SpaceInvadersNoFrameskip-v4",
+      "game_name": "SpaceInvaders",
+      "mean_reward": 992.5,
+      "std_reward": 279.3854863803773,
+      "min_reward": 570.0,
+      "max_reward": 1320.0,
+      "median_reward": 995.0,
+      "num_episodes": 30
+    }
+  ]
+}
