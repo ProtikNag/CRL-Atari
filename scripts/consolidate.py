@@ -152,9 +152,9 @@ def load_expert_results(
 
         debug_enabled = config.get("debug", {}).get("enabled", False)
         buffer_size = (
-            config["debug"].get("distill_buffer_size", 500)
+            config["debug"].get("buffer_size_per_task", 2000)
             if debug_enabled
-            else config["distillation"].get("buffer_size_per_task", 10_000)
+            else config.get("buffer_size_per_task", 50_000)
         )
 
         print(f"Collecting {buffer_size} replay samples for {game_name}...")
@@ -259,52 +259,145 @@ def main():
                     f"valid_actions={r['valid_actions']}, "
                     f"buffer_size={r['replay_buffer'].size}")
 
-    # Build global model (initialized randomly or from average)
+    # ── Build global model with method-specific initialization ──
     global_model = build_model(config, device)
 
-    # Initialize global model as average of experts
-    logger.info("Initializing global model as parameter average of experts...")
-    avg_sd = {}
-    first_sd = expert_results[0]["policy_state_dict"]
-    for key in first_sd:
-        avg_sd[key] = torch.stack(
-            [r["policy_state_dict"][key].float().to(device) for r in expert_results]
-        ).mean(dim=0)
-    global_model.load_state_dict(avg_sd)
+    if args.method == "htcl":
+        # HTCL: global model initialized from FIRST expert (not averaged).
+        # This avoids the circular dependency of averaging task-3 weights
+        # before the model has ever "seen" task 3.
+        logger.info(
+            "Initializing global model from first expert "
+            f"({expert_results[0]['game_name']})..."
+        )
+        first_sd = expert_results[0]["policy_state_dict"]
+        init_sd = {
+            k: v.float().to(device) for k, v in first_sd.items()
+        }
+        global_model.load_state_dict(init_sd)
+    else:
+        # Distillation: parameter-average of all experts
+        logger.info(
+            "Initializing global model as parameter average of experts..."
+        )
+        first_sd = expert_results[0]["policy_state_dict"]
+        init_sd = {}
+        for key in first_sd:
+            init_sd[key] = torch.stack(
+                [
+                    r["policy_state_dict"][key].float().to(device)
+                    for r in expert_results
+                ]
+            ).mean(dim=0)
+        global_model.load_state_dict(init_sd)
 
-    # Log parameter statistics of the averaged model
-    total_norm = sum(p.data.norm().item() ** 2 for p in global_model.parameters()) ** 0.5
+    total_norm = sum(
+        p.data.norm().item() ** 2 for p in global_model.parameters()
+    ) ** 0.5
     logger.info(f"Global model param norm: {total_norm:.4f}")
 
-    # Run consolidation
+    # ── HTCL: confidence-filter replay buffers & build frozen expert list ──
+    filtered_states_list = None
+    expert_models = None
+
+    if args.method == "htcl":
+        htcl_cfg = config["htcl"]
+        debug_enabled = config.get("debug", {}).get("enabled", False)
+        filtered_size = (
+            config["debug"].get("filtered_buffer_size", 500)
+            if debug_enabled
+            else htcl_cfg.get("filtered_buffer_size", 10_000)
+        )
+
+        logger.info(
+            f"Filtering replay buffers to top-{filtered_size} "
+            f"high-confidence states per expert..."
+        )
+        filtered_states_list = []
+        expert_models = []
+
+        for r in expert_results:
+            # Build frozen expert model for KL evaluation
+            expert_model = build_model(config, device)
+            expert_model.load_state_dict(r["policy_state_dict"])
+            expert_model.eval()
+            for p in expert_model.parameters():
+                p.requires_grad_(False)
+            expert_models.append(expert_model)
+
+            # Filter states by Q-value gap confidence
+            filt_states = r["replay_buffer"].filter_by_confidence(
+                expert_model, r["valid_actions"], top_k=filtered_size,
+            )
+            filtered_states_list.append(filt_states)
+            logger.info(
+                f"  {r['game_name']}: {filt_states.shape[0]} states filtered "
+                f"from {r['replay_buffer'].size} raw transitions"
+            )
+
+    # ── Run consolidation ──
     if args.method == "distillation":
-        consolidator = DistillationConsolidator(config, device=device, logger=logger)
-        consolidated_model = consolidator.consolidate(global_model, expert_results)
+        consolidator = DistillationConsolidator(
+            config, device=device, logger=logger,
+        )
+        consolidated_model = consolidator.consolidate(
+            global_model, expert_results,
+        )
     elif args.method == "htcl":
-        consolidator = HTCLConsolidator(config, device=device, logger=logger)
-        consolidated_model = consolidator.consolidate(global_model, expert_results)
-        # Save Fisher / Hessian diagnostic log for offline plotting
+        consolidator = HTCLConsolidator(
+            config, device=device, logger=logger,
+        )
+
+        # Register first expert as baseline task
+        consolidator.register_initial_task(
+            global_model,
+            expert_results[0]["valid_actions"],
+            filtered_states_list[0],
+            expert_results[0]["game_name"],
+        )
+
+        consolidated_model = consolidator.consolidate(
+            global_model, expert_results,
+            filtered_states_list=filtered_states_list,
+            expert_models=expert_models,
+        )
+
+        # Save Fisher / Hessian diagnostic log
         fisher_log_path = os.path.join(
             config["logging"]["checkpoint_dir"],
             args.tag,
             "htcl_fisher_log.json",
         )
         consolidator.save_fisher_log(fisher_log_path)
+
+        # Save lambda grid search log (if grid search was run)
+        if consolidator.lambda_grid_results:
+            grid_log_path = os.path.join(
+                config["logging"]["checkpoint_dir"],
+                args.tag,
+                "htcl_lambda_grid.json",
+            )
+            consolidator.save_lambda_grid_log(grid_log_path)
     else:
         raise ValueError(f"Unknown method: {args.method}")
 
-    # Log post-consolidation statistics
+    # ── Post-consolidation statistics ──
     total_norm_after = sum(
         p.data.norm().item() ** 2 for p in consolidated_model.parameters()
     ) ** 0.5
-    logger.info(f"Consolidated model param norm: {total_norm_after:.4f} "
-                f"(delta: {total_norm_after - total_norm:+.4f})")
+    logger.info(
+        f"Consolidated model param norm: {total_norm_after:.4f} "
+        f"(delta: {total_norm_after - total_norm:+.4f})"
+    )
 
-    # Compute weight drift from average init
     drift_norms = {}
     for key, param in consolidated_model.named_parameters():
-        drift = (param.data - avg_sd[key].to(device)).norm().item()
-        drift_norms[key.split('.')[0]] = drift_norms.get(key.split('.')[0], 0) + drift
+        drift = (
+            param.data - init_sd[key].to(device)
+        ).norm().item()
+        drift_norms[key.split('.')[0]] = (
+            drift_norms.get(key.split('.')[0], 0) + drift
+        )
     for layer, drift in drift_norms.items():
         logger.info(f"  Weight drift [{layer}]: {drift:.6f}")
 

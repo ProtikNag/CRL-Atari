@@ -80,11 +80,23 @@ def get_effective_config(
         config["training"]["eval_episodes"] = debug_cfg.get("eval_episodes", 2)
         config["training"]["eval_freq"] = debug_cfg.get("eval_freq", 1000)
         config["training"]["save_freq"] = debug_cfg.get("save_freq", 2500)
-        config["htcl"]["fisher_samples"] = debug_cfg.get("fisher_samples", 100)
-        config["distillation"]["distill_epochs"] = debug_cfg.get("distill_epochs", 5)
-        config["distillation"]["buffer_size_per_task"] = debug_cfg.get(
-            "distill_buffer_size", 500
+
+        # Shared consolidation replay buffer (top-level key)
+        config["buffer_size_per_task"] = debug_cfg.get(
+            "buffer_size_per_task", 2000
         )
+
+        # HTCL debug overrides
+        config["htcl"]["fisher_samples"] = debug_cfg.get("fisher_samples", 100)
+        config["htcl"]["filtered_buffer_size"] = debug_cfg.get(
+            "filtered_buffer_size", 500
+        )
+        if "lambda_candidates" in debug_cfg:
+            config["htcl"]["lambda_candidates"] = debug_cfg["lambda_candidates"]
+
+        # Distillation debug overrides
+        config["distillation"]["distill_epochs"] = debug_cfg.get("distill_epochs", 5)
+
         # Also override evaluation episodes for compare.py
         config["evaluation"]["episodes"] = debug_cfg.get("eval_episodes", 2)
 

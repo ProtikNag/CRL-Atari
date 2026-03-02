@@ -6,7 +6,8 @@ Stores (state, action, reward, next_state, done) transitions in a circular buffe
 
 import numpy as np
 import torch
-from typing import Tuple, Optional
+import torch.nn.functional as F
+from typing import List, Tuple, Optional
 
 
 class ReplayBuffer:
@@ -134,3 +135,53 @@ class ReplayBuffer:
 
     def __len__(self) -> int:
         return self.size
+
+    def filter_by_confidence(
+        self,
+        model: "DQNNetwork",  # noqa: F821 — forward ref to avoid circular import
+        valid_actions: List[int],
+        top_k: int,
+        batch_size: int = 256,
+    ) -> torch.Tensor:
+        """Return the top-K most decisive states ranked by Q-value gap.
+
+        For each stored state the *Q-value gap* is defined as
+        ``max_a Q(s,a) - min_a Q(s,a)`` over the valid action subset.
+        States where the expert has a strong preference (large gap) carry
+        more informative Fisher / gradient signal.
+
+        Args:
+            model: Expert DQN used to score states.
+            valid_actions: Indices of valid actions for this game.
+            top_k: Number of high-confidence states to keep.
+            batch_size: Forward-pass batch size (controls memory).
+
+        Returns:
+            Tensor of shape ``(top_k, frame_stack, H, W)`` in ``[0, 1]``.
+        """
+        n = self.size
+        top_k = min(top_k, n)
+        gaps = np.empty(n, dtype=np.float32)
+
+        model.eval()
+        with torch.no_grad():
+            for start in range(0, n, batch_size):
+                end = min(start + batch_size, n)
+                states_np = self.states[start:end]
+                states_t = (
+                    torch.from_numpy(states_np).float().to(self.device) / 255.0
+                )
+                q_values = model(states_t)  # (B, num_actions)
+                valid_q = q_values[:, valid_actions]  # (B, |valid|)
+                gap = (valid_q.max(dim=1).values - valid_q.min(dim=1).values)
+                gaps[start:end] = gap.cpu().numpy()
+
+        # Pick the top_k indices with largest gaps
+        top_indices = np.argpartition(gaps, -top_k)[-top_k:]
+        # Sort them descending for determinism (optional but nice for logging)
+        top_indices = top_indices[np.argsort(gaps[top_indices])[::-1]]
+
+        states = (
+            torch.from_numpy(self.states[top_indices]).float().to(self.device) / 255.0
+        )
+        return states
