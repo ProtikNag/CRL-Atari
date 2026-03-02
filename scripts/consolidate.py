@@ -1,10 +1,9 @@
 """
-Consolidate expert models using EWC, Distillation, or HTCL.
+Consolidate expert models using Distillation or HTCL.
 
 Loads trained expert checkpoints and merges them into a single global model.
 
 Usage:
-    python scripts/consolidate.py --method ewc [--debug] [--config CONFIG_PATH]
     python scripts/consolidate.py --method distillation [--debug]
     python scripts/consolidate.py --method htcl [--debug]
 """
@@ -20,7 +19,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.models.dqn import DQNNetwork
 from src.data.replay_buffer import ReplayBuffer
 from src.data.atari_wrappers import get_valid_actions, make_atari_env, compute_union_action_space
-from src.consolidation.ewc import EWCConsolidator
 from src.consolidation.distillation import DistillationConsolidator
 from src.consolidation.htcl import HTCLConsolidator
 from src.utils.config import get_effective_config, save_config
@@ -185,7 +183,7 @@ def main():
         "--method",
         type=str,
         required=True,
-        choices=["ewc", "distillation", "htcl"],
+        choices=["distillation", "htcl"],
         help="Consolidation method.",
     )
     parser.add_argument(
@@ -237,12 +235,7 @@ def main():
     logger.info(f"Union action space: {union_actions} ({len(union_actions)} actions)")
 
     # Log method-specific hyperparameters
-    if args.method == "ewc":
-        ewc_cfg = config["ewc"]
-        logger.info(f"EWC config: lambda={ewc_cfg['lambda_ewc']}, "
-                    f"fisher_samples={ewc_cfg['fisher_samples']}, "
-                    f"online={ewc_cfg['online']}, gamma={ewc_cfg['gamma_ewc']}")
-    elif args.method == "distillation":
+    if args.method == "distillation":
         dist_cfg = config["distillation"]
         logger.info(f"Distillation config: temperature={dist_cfg['temperature']}, "
                     f"alpha={dist_cfg['alpha']}, epochs={dist_cfg['distill_epochs']}, "
@@ -284,18 +277,19 @@ def main():
     logger.info(f"Global model param norm: {total_norm:.4f}")
 
     # Run consolidation
-    if args.method == "ewc":
-        consolidator = EWCConsolidator(config, device=device, logger=logger)
-        consolidated_model = consolidator.consolidate(
-            global_model, expert_results,
-            consolidation_steps=5000 if not config["debug"]["enabled"] else 500,
-        )
-    elif args.method == "distillation":
+    if args.method == "distillation":
         consolidator = DistillationConsolidator(config, device=device, logger=logger)
         consolidated_model = consolidator.consolidate(global_model, expert_results)
     elif args.method == "htcl":
         consolidator = HTCLConsolidator(config, device=device, logger=logger)
         consolidated_model = consolidator.consolidate(global_model, expert_results)
+        # Save Fisher / Hessian diagnostic log for offline plotting
+        fisher_log_path = os.path.join(
+            config["logging"]["checkpoint_dir"],
+            args.tag,
+            "htcl_fisher_log.json",
+        )
+        consolidator.save_fisher_log(fisher_log_path)
     else:
         raise ValueError(f"Unknown method: {args.method}")
 

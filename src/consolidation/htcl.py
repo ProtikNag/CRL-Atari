@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
+import json
 import os
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
@@ -72,6 +73,8 @@ class HTCLConsolidator:
         self.cumulative_gradient: Optional[Dict[str, torch.Tensor]] = None
         # Number of tasks registered
         self.num_registered_tasks = 0
+        # Fisher statistics log (saved alongside checkpoint for later plotting)
+        self.fisher_log: List[Dict[str, Any]] = []
 
     def compute_diagonal_fisher(
         self,
@@ -243,6 +246,128 @@ class HTCLConsolidator:
 
         return effective_lambda
 
+    # ── Fisher / Hessian diagnostic logging ──────────────────────────────────
+
+    def _log_fisher_statistics(
+        self,
+        fisher: Dict[str, torch.Tensor],
+        task_idx: int,
+        game_name: str,
+        prefix: str = "htcl",
+        is_cumulative: bool = False,
+    ) -> Dict[str, Any]:
+        """Log detailed per-layer Fisher (Hessian diagonal) statistics.
+
+        Logs to TensorBoard and returns a summary dict that is accumulated
+        in ``self.fisher_log`` for later offline plotting.
+
+        Args:
+            fisher: Diagonal Fisher dict (param_name -> tensor).
+            task_idx: 0-based task index.
+            game_name: Name of the current game/task.
+            prefix: TensorBoard tag prefix.
+            is_cumulative: Whether this is the *cumulative* Fisher across tasks.
+
+        Returns:
+            Summary dict with per-layer and global statistics.
+        """
+        kind = "cumulative" if is_cumulative else "task"
+        tag_prefix = f"{prefix}/fisher_{kind}"
+
+        layer_stats: Dict[str, Dict[str, float]] = {}
+        all_vals = []
+
+        for name, f_diag in fisher.items():
+            vals = f_diag.detach().cpu().float()
+            all_vals.append(vals.flatten())
+
+            stats = {
+                "min": vals.min().item(),
+                "max": vals.max().item(),
+                "mean": vals.mean().item(),
+                "std": vals.std().item(),
+                "median": vals.median().item(),
+                "nonzero_frac": (vals > 1e-10).float().mean().item(),
+                "numel": vals.numel(),
+            }
+            layer_stats[name] = stats
+
+            # TensorBoard: one scalar per (layer x stat)
+            if self.logger:
+                for stat_name, stat_val in stats.items():
+                    if stat_name == "numel":
+                        continue
+                    self.logger.log_scalar(
+                        f"{tag_prefix}/{name}/{stat_name}",
+                        stat_val,
+                        task_idx + 1,
+                    )
+
+        # Global (all-parameter) statistics
+        all_flat = torch.cat(all_vals)
+        global_stats = {
+            "min": all_flat.min().item(),
+            "max": all_flat.max().item(),
+            "mean": all_flat.mean().item(),
+            "std": all_flat.std().item(),
+            "median": all_flat.median().item(),
+            "nonzero_frac": (all_flat > 1e-10).float().mean().item(),
+            "total_params": all_flat.numel(),
+        }
+
+        if self.logger:
+            for stat_name, stat_val in global_stats.items():
+                if stat_name == "total_params":
+                    continue
+                self.logger.log_scalar(
+                    f"{tag_prefix}/global/{stat_name}",
+                    stat_val,
+                    task_idx + 1,
+                )
+
+            # Concise console summary
+            self.logger.info(
+                f"HTCL: Fisher ({kind}) after {game_name} | "
+                f"global min={global_stats['min']:.6f}, "
+                f"max={global_stats['max']:.4f}, "
+                f"mean={global_stats['mean']:.6f}, "
+                f"std={global_stats['std']:.6f}, "
+                f"nonzero={global_stats['nonzero_frac']*100:.1f}%"
+            )
+
+        # Compute top-5 layers by mean Fisher
+        top_layers = sorted(
+            layer_stats.items(), key=lambda kv: kv[1]["mean"], reverse=True
+        )[:5]
+        if self.logger:
+            for rank, (lname, lstats) in enumerate(top_layers, 1):
+                self.logger.info(
+                    f"  Top-{rank} Fisher layer: {lname} | "
+                    f"mean={lstats['mean']:.6f}, max={lstats['max']:.4f}"
+                )
+
+        summary = {
+            "task_idx": task_idx,
+            "game_name": game_name,
+            "kind": kind,
+            "global": global_stats,
+            "per_layer": layer_stats,
+        }
+        self.fisher_log.append(summary)
+        return summary
+
+    def save_fisher_log(self, path: str) -> None:
+        """Save accumulated Fisher statistics to JSON for offline plotting.
+
+        Args:
+            path: Output JSON path.
+        """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(self.fisher_log, f, indent=2)
+        if self.logger:
+            self.logger.info(f"HTCL: Fisher log saved to {path}")
+
     def _taylor_update(
         self,
         global_state_dict: Dict[str, torch.Tensor],
@@ -352,6 +477,16 @@ class HTCLConsolidator:
             else:
                 for name in task_fisher:
                     self.cumulative_fisher[name] += task_fisher[name]
+
+            # ── Log Fisher / Hessian diagnostics ──
+            self._log_fisher_statistics(
+                task_fisher, task_idx, game_name,
+                prefix="htcl", is_cumulative=False,
+            )
+            self._log_fisher_statistics(
+                self.cumulative_fisher, task_idx, game_name,
+                prefix="htcl", is_cumulative=True,
+            )
 
             # Compute gradient at global params on current task data
             task_gradient = self.compute_gradient(

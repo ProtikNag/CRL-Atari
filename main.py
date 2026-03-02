@@ -171,7 +171,7 @@ def main():
         "--method",
         type=str,
         default=None,
-        choices=["ewc", "distillation", "htcl"],
+        choices=["distillation", "htcl"],
         help="Consolidation method (for consolidate step).",
     )
     parser.add_argument(
@@ -200,7 +200,7 @@ def main():
         run_train_experts(config, device, args.tag)
 
     if args.step in ("all", "consolidate"):
-        methods = [args.method] if args.method else ["ewc", "distillation", "htcl"]
+        methods = [args.method] if args.method else ["distillation", "htcl"]
         for method in methods:
             print(f"\n>>> Consolidating with {method.upper()} <<<")
             run_consolidate(config, device, args.tag, method)

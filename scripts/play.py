@@ -188,7 +188,7 @@ def main():
             print(f"  {short:20s} ({env_id}) [{status}]")
         # Also check for consolidated models
         print("\nConsolidated models:")
-        for method in ["ewc", "distillation", "htcl"]:
+        for method in ["distillation", "htcl"]:
             ckpt = os.path.join(tag_dir, f"consolidated_{method}.pt")
             status = "found" if os.path.exists(ckpt) else "not found"
             print(f"  {method:20s} [{status}]")

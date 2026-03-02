@@ -44,20 +44,17 @@ MARKERS = ["o", "s", "^", "D", "v", "P"]
 
 METHOD_COLORS = {
     "Expert":       PALETTE["navy"],
-    "EWC":          PALETTE["terracotta"],
     "Distillation": PALETTE["plum"],
     "HTCL":         PALETTE["crimson"],
 }
 METHOD_HATCHES = {
     "Expert":       None,
-    "EWC":          "//",
     "Distillation": "\\\\",
     "HTCL":         "xx",
 }
 # Light tints for fills (box/violin interiors)
 METHOD_LIGHT = {
     "Expert":       "#C8D5E8",
-    "EWC":          "#EDDACC",
     "Distillation": "#D5CEE0",
     "HTCL":         "#E4C5C3",
 }
