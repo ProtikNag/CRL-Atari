@@ -143,6 +143,7 @@ def plot_grouped_bar(
 
     ax.set_xlabel("Atari Game")
     ax.set_ylabel("Mean Episode Reward")
+    ax.set_yscale("symlog", linthresh=10)
     ax.set_title("Expert vs Consolidated Model Performance")
     ax.set_xticks(x)
     ax.set_xticklabels(games)
@@ -286,8 +287,10 @@ def plot_radar(
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(games, fontsize=11)
     ax.set_ylim(0, 1.3)
-    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
-    ax.set_yticklabels(["25%", "50%", "75%", "100%"], fontsize=8, color="gray")
+    ax.set_yticks([0.01, 0.05, 0.1, 0.25, 0.5, 1.0])
+    ax.set_yticklabels(["1%", "5%", "10%", "25%", "50%", "100%"],
+                       fontsize=8, color="gray")
+    ax.set_rscale("symlog", linthresh=0.05)
     ax.set_title("Normalised Performance Profile\n(100% = Expert)", y=1.08)
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.1))
     _save_fig(fig, figure_dir, filename)
@@ -328,6 +331,7 @@ def plot_forgetting_gap(
     ax.set_yticks(y)
     ax.set_yticklabels(games)
     ax.set_xlabel("Reward Gap  (Expert − Consolidated)")
+    ax.set_xscale("symlog", linthresh=10)
     ax.set_title("Forgetting Analysis  (positive = forgetting, negative = improvement)")
     ax.axvline(0, color=EDGE_COLOR, linewidth=0.8)
     ax.legend(loc="lower right")
@@ -452,11 +456,13 @@ def plot_fisher_diagnostics(fisher_log_path: str, figure_dir: str) -> None:
         labels = [e["game_name"] for e in cumulative]
         xs = list(range(1, len(cumulative) + 1))
 
-        for ax, stat, title in zip(
+        for ax, stat, title, ylabel in zip(
             axes,
             ["mean", "max", "nonzero_frac"],
             ["Mean Fisher (cumulative)", "Max Fisher (cumulative)",
              "Non-zero Fraction"],
+            ["Mean Fisher Information", "Max Fisher Information",
+             "Fraction (0–1)"],
         ):
             vals = [e["global"][stat] for e in cumulative]
             ax.plot(xs, vals, color=PALETTE["pastel_purple"],
@@ -466,6 +472,9 @@ def plot_fisher_diagnostics(fisher_log_path: str, figure_dir: str) -> None:
             ax.set_xticklabels(labels, rotation=20, ha="right")
             ax.set_title(title)
             ax.set_xlabel("Task")
+            ax.set_ylabel(ylabel)
+            if stat != "nonzero_frac":
+                ax.ticklabel_format(style="scientific", axis="y", scilimits=(0, 0))
 
         fig.suptitle(
             "Cumulative Fisher (Hessian Diagonal) Diagnostics",
@@ -531,9 +540,10 @@ def plot_fisher_diagnostics(fisher_log_path: str, figure_dir: str) -> None:
         ax.set_xticks(xs)
         ax.set_xticklabels(labels)
         ax.set_xlabel("Task")
-        ax.set_ylabel("Fisher Statistic")
+        ax.set_ylabel("Fisher Information")
         ax.set_title("Per-Task Fisher Statistics  (not cumulative)")
         ax.legend()
+        ax.ticklabel_format(style="scientific", axis="y", scilimits=(0, 0))
         _save_fig(fig, figure_dir, "fisher_per_task_stats")
 
     print(f"  Fisher diagnostic plots saved to {figure_dir}")
@@ -596,6 +606,7 @@ def plot_lambda_grid(
     )
 
     ax.set_xscale("log")
+    ax.set_yscale("symlog", linthresh=1.0)
     ax.set_xlabel("Lambda (λ)")
     ax.set_ylabel("KL Divergence")
     ax.set_title("HTCL Lambda Grid Search")
@@ -626,6 +637,75 @@ def plot_lambda_grid(
         _save_fig(fig, figure_dir, f"lambda_kl_lam{lam:.1f}")
 
     print(f"  Lambda grid plots saved to {figure_dir}")
+
+    # ── (c) Summary table of all lambdas ──
+    _plot_lambda_summary_table(grid_data, games, figure_dir)
+
+
+def _plot_lambda_summary_table(
+    grid_data: list, games: list, figure_dir: str,
+) -> None:
+    """Render a summary table figure comparing all lambda candidates.
+
+    Rows = lambda values, columns = per-task KL + avg KL.
+    Best lambda is highlighted.
+    """
+    lambdas = [e["lambda"] for e in grid_data]
+    avg_kls = [e["avg_kl"] for e in grid_data]
+    best_idx = int(np.argmin(avg_kls))
+
+    col_labels = games + ["Avg KL"]
+    row_labels = [f"λ = {lam}" for lam in lambdas]
+
+    cell_text = []
+    for entry in grid_data:
+        row = []
+        for g in games:
+            kl_val = entry["kl_per_task"].get(g, 0)
+            row.append(f"{kl_val:.4f}")
+        row.append(f"{entry['avg_kl']:.4f}")
+        cell_text.append(row)
+
+    fig, ax = plt.subplots(
+        figsize=(max(7, len(col_labels) * 2), max(2, len(lambdas) * 0.7 + 1)),
+    )
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=cell_text,
+        rowLabels=row_labels,
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.0, 1.6)
+
+    # Style header row
+    for j in range(len(col_labels)):
+        table[0, j].set_facecolor(PALETTE["pastel_blue"])
+        table[0, j].set_edgecolor(EDGE_COLOR)
+
+    # Highlight best lambda row
+    for j in range(len(col_labels)):
+        table[best_idx + 1, j].set_facecolor(PALETTE["pastel_green"])
+    # Also highlight best row label
+    table[best_idx + 1, -1].set_facecolor(PALETTE["pastel_green"])
+
+    # Style avg KL column
+    for i in range(len(lambdas)):
+        if i != best_idx:
+            table[i + 1, len(col_labels) - 1].set_facecolor(
+                PALETTE["pastel_yellow"]
+            )
+
+    ax.set_title(
+        f"Lambda Grid Search Summary (Best: λ = {lambdas[best_idx]})",
+        fontsize=13, pad=20,
+    )
+    _save_fig(fig, figure_dir, "lambda_summary_table")
+    print(f"  Lambda summary table saved to {figure_dir}")
 
 
 # ── Plot 10: KL divergence between consolidated and expert policies ─────────
@@ -715,7 +795,13 @@ def plot_kl_divergence(
                     e_probs = F2.softmax(e_q + mask.unsqueeze(0), dim=1)
                     c_q = consol_model(batch)
                     c_log_p = F2.log_softmax(c_q + mask.unsqueeze(0), dim=1)
-                    kl = F2.kl_div(c_log_p, e_probs, reduction="batchmean")
+                    # Restrict to valid actions only to avoid NaN
+                    # from 0 * log(0) at masked positions
+                    kl = F2.kl_div(
+                        c_log_p[:, valid_actions],
+                        e_probs[:, valid_actions],
+                        reduction="batchmean",
+                    )
                     total_kl += kl.item()
                     n_batches += 1
 
@@ -745,6 +831,7 @@ def plot_kl_divergence(
     ax.set_xticks(x)
     ax.set_xticklabels(games)
     ax.set_ylabel("KL(Expert ‖ Consolidated)")
+    ax.set_yscale("symlog", linthresh=0.1)
     ax.set_title("Policy Divergence: Expert vs Consolidated")
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
     _save_fig(fig, figure_dir, "kl_divergence_comparison")
