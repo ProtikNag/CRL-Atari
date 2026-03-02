@@ -1,0 +1,101 @@
+[2026-03-02 14:09:21] INFO - Consolidation method: htcl
+[2026-03-02 14:09:21] INFO - Device: cuda
+[2026-03-02 14:09:21] INFO - Debug: False
+[2026-03-02 14:09:21] INFO - Tag: default
+[2026-03-02 14:09:21] INFO - Config: configs/base.yaml
+[2026-03-02 14:09:21] INFO - Task sequence: ['PongNoFrameskip-v4', 'BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4']
+[2026-03-02 14:09:22] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-02 14:09:22] INFO - HTCL config: lambda=200000.0, lambda_auto=False, fisher_samples=2000, catch_up_iters=10, eta=0.9
+[2026-03-02 14:09:22] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-02 14:10:07] INFO - Loaded 3 expert models in 45.1s.
+[2026-03-02 14:10:07] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=10000
+[2026-03-02 14:10:07] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=10000
+[2026-03-02 14:10:07] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=10000
+[2026-03-02 14:10:07] INFO - Initializing global model as parameter average of experts...
+[2026-03-02 14:10:07] INFO - Global model param norm: 38.5809
+[2026-03-02 14:10:07] INFO - Starting HTCL consolidation...
+[2026-03-02 14:10:07] INFO - HTCL: Consolidating task 1/3 (Pong)...
+[2026-03-02 14:10:10] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.1585, mean=0.000003, std=0.000380, nonzero=6.7%
+[2026-03-02 14:10:10] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138776, max=0.1463
+[2026-03-02 14:10:10] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.013196, max=0.1585
+[2026-03-02 14:10:10] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.010595, max=0.0919
+[2026-03-02 14:10:10] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000390, max=0.0171
+[2026-03-02 14:10:10] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000346, max=0.0250
+[2026-03-02 14:10:10] INFO - HTCL: Fisher (cumulative) after Pong | global min=0.000000, max=0.1585, mean=0.000003, std=0.000380, nonzero=6.7%
+[2026-03-02 14:10:10] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138776, max=0.1463
+[2026-03-02 14:10:10] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.013196, max=0.1585
+[2026-03-02 14:10:10] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.010595, max=0.0919
+[2026-03-02 14:10:10] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000390, max=0.0171
+[2026-03-02 14:10:10] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000346, max=0.0250
+[2026-03-02 14:10:11] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 200000.000000
+[2026-03-02 14:10:11] INFO - HTCL: Task 1 (Pong) | effective_lambda = 200000.00
+[2026-03-02 14:10:11] INFO - HTCL: Pong | expert_drift_norm = 49.0970 | update_norm = 44.1873
+[2026-03-02 14:10:11] INFO - HTCL: Catch-up iteration 1/10 for Pong
+[2026-03-02 14:10:11] INFO - HTCL: Catch-up iteration 2/10 for Pong
+[2026-03-02 14:10:11] INFO - HTCL: Catch-up iteration 3/10 for Pong
+[2026-03-02 14:10:11] INFO - HTCL: Catch-up iteration 4/10 for Pong
+[2026-03-02 14:10:11] INFO - HTCL: Catch-up iteration 5/10 for Pong
+[2026-03-02 14:10:11] INFO - HTCL: Catch-up iteration 6/10 for Pong
+[2026-03-02 14:10:12] INFO - HTCL: Catch-up iteration 7/10 for Pong
+[2026-03-02 14:10:12] INFO - HTCL: Catch-up iteration 8/10 for Pong
+[2026-03-02 14:10:12] INFO - HTCL: Catch-up iteration 9/10 for Pong
+[2026-03-02 14:10:12] INFO - HTCL: Catch-up iteration 10/10 for Pong
+[2026-03-02 14:10:12] INFO - HTCL: Consolidating task 2/3 (Breakout)...
+[2026-03-02 14:10:14] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=1.3383, mean=0.000012, std=0.002949, nonzero=7.5%
+[2026-03-02 14:10:14] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124762, max=0.1995
+[2026-03-02 14:10:14] INFO -   Top-2 Fisher layer: fc.2.weight | mean=0.005912, max=1.3383
+[2026-03-02 14:10:14] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.000968, max=0.0127
+[2026-03-02 14:10:15] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.000456, max=0.0015
+[2026-03-02 14:10:15] INFO -   Top-5 Fisher layer: features.4.bias | mean=0.000279, max=0.0032
+[2026-03-02 14:10:15] INFO - HTCL: Fisher (cumulative) after Breakout | global min=0.000000, max=1.3383, mean=0.000015, std=0.003002, nonzero=13.7%
+[2026-03-02 14:10:15] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.263538, max=0.3449
+[2026-03-02 14:10:15] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.013475, max=0.1585
+[2026-03-02 14:10:15] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.011051, max=0.0927
+[2026-03-02 14:10:15] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.006302, max=1.3383
+[2026-03-02 14:10:15] INFO -   Top-5 Fisher layer: features.0.bias | mean=0.001240, max=0.0154
+[2026-03-02 14:10:15] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 200000.000000
+[2026-03-02 14:10:15] INFO - HTCL: Task 2 (Breakout) | effective_lambda = 200000.00
+[2026-03-02 14:10:15] INFO - HTCL: Breakout | expert_drift_norm = 86.2732 | update_norm = 77.6459
+[2026-03-02 14:10:15] INFO - HTCL: Catch-up iteration 1/10 for Breakout
+[2026-03-02 14:10:15] INFO - HTCL: Catch-up iteration 2/10 for Breakout
+[2026-03-02 14:10:15] INFO - HTCL: Catch-up iteration 3/10 for Breakout
+[2026-03-02 14:10:15] INFO - HTCL: Catch-up iteration 4/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Catch-up iteration 5/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Catch-up iteration 6/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Catch-up iteration 7/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Catch-up iteration 8/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Catch-up iteration 9/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Catch-up iteration 10/10 for Breakout
+[2026-03-02 14:10:16] INFO - HTCL: Consolidating task 3/3 (SpaceInvaders)...
+[2026-03-02 14:10:19] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=2.8075, mean=0.000093, std=0.006241, nonzero=29.1%
+[2026-03-02 14:10:19] INFO -   Top-1 Fisher layer: features.0.bias | mean=0.285900, max=2.8075
+[2026-03-02 14:10:19] INFO -   Top-2 Fisher layer: fc.2.bias | mean=0.127284, max=0.1839
+[2026-03-02 14:10:19] INFO -   Top-3 Fisher layer: features.4.bias | mean=0.042259, max=1.1735
+[2026-03-02 14:10:19] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.035797, max=1.0674
+[2026-03-02 14:10:19] INFO -   Top-5 Fisher layer: features.2.bias | mean=0.032909, max=0.0985
+[2026-03-02 14:10:19] INFO - HTCL: Fisher (cumulative) after SpaceInvaders | global min=0.000000, max=2.8076, mean=0.000108, std=0.007291, nonzero=35.3%
+[2026-03-02 14:10:19] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.390822, max=0.5256
+[2026-03-02 14:10:19] INFO -   Top-2 Fisher layer: features.0.bias | mean=0.287140, max=2.8076
+[2026-03-02 14:10:19] INFO -   Top-3 Fisher layer: features.4.bias | mean=0.055735, max=1.2906
+[2026-03-02 14:10:19] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.043960, max=0.1329
+[2026-03-02 14:10:19] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.042099, max=1.7530
+[2026-03-02 14:10:19] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 200000.000000
+[2026-03-02 14:10:19] INFO - HTCL: Task 3 (SpaceInvaders) | effective_lambda = 200000.00
+[2026-03-02 14:10:19] INFO - HTCL: SpaceInvaders | expert_drift_norm = 100.5696 | update_norm = 90.5127
+[2026-03-02 14:10:19] INFO - HTCL: Catch-up iteration 1/10 for SpaceInvaders
+[2026-03-02 14:10:19] INFO - HTCL: Catch-up iteration 2/10 for SpaceInvaders
+[2026-03-02 14:10:19] INFO - HTCL: Catch-up iteration 3/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 4/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 5/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 6/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 7/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 8/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 9/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL: Catch-up iteration 10/10 for SpaceInvaders
+[2026-03-02 14:10:20] INFO - HTCL consolidation complete.
+[2026-03-02 14:10:21] INFO - HTCL: Fisher log saved to results/checkpoints/default/htcl_fisher_log.json
+[2026-03-02 14:10:21] INFO - Consolidated model param norm: 74.7582 (delta: +36.1773)
+[2026-03-02 14:10:21] INFO -   Weight drift [features]: 28.814289
+[2026-03-02 14:10:21] INFO -   Weight drift [fc]: 62.992549
+[2026-03-02 14:10:21] INFO - Consolidated model saved to results/checkpoints/default/consolidated_htcl.pt
+[2026-03-02 14:10:21] INFO - Total consolidation time (htcl): 59.2s

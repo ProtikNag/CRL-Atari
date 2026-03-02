@@ -1,0 +1,65 @@
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+
+============================================================
+Evaluating Expert Models
+============================================================
+  Expert (Pong): 19.80 ± 0.79
+  Expert (Breakout): 386.07 ± 35.05
+  Expert (SpaceInvaders): 1188.33 ± 111.27
+
+============================================================
+Evaluating Distillation Consolidated Model
+============================================================
+  Distillation on Pong: -16.90 ± 12.30
+  Distillation on Breakout: 3.60 ± 4.41
+  Distillation on SpaceInvaders: 265.33 ± 182.16
+
+============================================================
+Evaluating HTCL Consolidated Model
+============================================================
+  HTCL on Pong: -21.00 ± 0.00
+  HTCL on Breakout: 2.40 ± 3.98
+  HTCL on SpaceInvaders: 992.50 ± 279.39
+
+Generating comparison visualisations...
+  Saved → results/figures/{png,svg}/comparison_bar
+  Saved → results/figures/{png,svg}/performance_heatmap
+  Saved → results/figures/{png,svg}/reward_distributions
+  Saved → results/figures/{png,svg}/radar_chart
+  Saved → results/figures/{png,svg}/forgetting_gap
+  Saved → results/figures/{png,svg}/relative_performance
+  Saved → results/figures/{png,svg}/summary_table
+
+Generating Fisher / Hessian diagnostic plots...
+  Saved → results/figures/{png,svg}/fisher_global_stats
+  Saved → results/figures/{png,svg}/fisher_layer_heatmap
+  Saved → results/figures/{png,svg}/fisher_per_task_stats
+  Fisher diagnostic plots saved to results/figures
+
+Numerical results saved to results/figures/comparison_results_default.json
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Method                         Pong       Breakout   SpaceInvaders        Average
+--------------------------------------------------------------------------------
+Expert                        19.80         386.07        1188.33         531.40
+Distillation                 -16.90           3.60         265.33          84.01
+HTCL                         -21.00           2.40         992.50         324.63
+================================================================================
+
+Retention (% of Expert):
+  Distillation          -85.4%     0.9%    22.3%  (avg -20.7%)
+  HTCL                 -106.1%     0.6%    83.5%  (avg -7.3%)
+
+LaTeX table:
+\begin{tabular}{lcccc}
+\toprule
+Method & Pong & Breakout & SpaceInvaders & Average \\
+\midrule
+Expert & 19.8 & 386.1 & 1188.3 & 531.4 \\
+Distillation & -16.9 & 3.6 & 265.3 & 84.0 \\
+HTCL & -21.0 & 2.4 & 992.5 & 324.6 \\
+\bottomrule
+\end{tabular}
