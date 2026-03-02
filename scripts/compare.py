@@ -539,6 +539,219 @@ def plot_fisher_diagnostics(fisher_log_path: str, figure_dir: str) -> None:
     print(f"  Fisher diagnostic plots saved to {figure_dir}")
 
 
+# ── Plot 9: Lambda grid search results ──────────────────────────────────────
+
+def plot_lambda_grid(
+    grid_log_path: str, figure_dir: str,
+) -> None:
+    """Visualise HTCL lambda grid search results.
+
+    Generates:
+        (a) Lambda selection curve — avg KL vs log(lambda)
+        (b) Per-task KL bar chart for each lambda candidate
+    """
+    if not os.path.exists(grid_log_path):
+        print(f"  Lambda grid log not found at {grid_log_path}, skipping.")
+        return
+
+    with open(grid_log_path, "r") as f:
+        grid_data = json.load(f)
+
+    if not grid_data:
+        print("  Lambda grid log is empty, skipping.")
+        return
+
+    lambdas = [e["lambda"] for e in grid_data]
+    avg_kls = [e["avg_kl"] for e in grid_data]
+    games = list(grid_data[0]["kl_per_task"].keys())
+
+    # ── (a) Lambda selection curve ──
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    # Average KL
+    ax.plot(
+        lambdas, avg_kls,
+        color=PALETTE["pastel_purple"], marker="o",
+        markeredgecolor=EDGE_COLOR, markeredgewidth=1.0,
+        markersize=8, linewidth=2.5, label="Avg KL",
+        zorder=5,
+    )
+
+    # Per-task KL curves
+    for gi, game in enumerate(games):
+        task_kls = [e["kl_per_task"][game] for e in grid_data]
+        ax.plot(
+            lambdas, task_kls,
+            color=COLORS[gi % len(COLORS)], marker=MARKERS[gi % len(MARKERS)],
+            markeredgecolor=EDGE_COLOR, markeredgewidth=0.8,
+            markersize=6, linewidth=1.5, alpha=0.7, label=game,
+        )
+
+    # Mark best lambda
+    best_idx = int(np.argmin(avg_kls))
+    ax.axvline(
+        lambdas[best_idx], color=PALETTE["pastel_red"],
+        linestyle="--", linewidth=1.5, alpha=0.8,
+        label=f"Best λ={lambdas[best_idx]:.1f}",
+    )
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Lambda (λ)")
+    ax.set_ylabel("KL Divergence")
+    ax.set_title("HTCL Lambda Grid Search")
+    ax.legend(fontsize=9, loc="best")
+    _save_fig(fig, figure_dir, "lambda_selection_curve")
+
+    # ── (b) Per-lambda bar charts ──
+    for entry in grid_data:
+        lam = entry["lambda"]
+        kl_vals = [entry["kl_per_task"].get(g, 0) for g in games]
+
+        fig, ax = plt.subplots(figsize=(max(5, len(games) * 1.5), 4))
+        x = np.arange(len(games))
+        bars = ax.bar(
+            x, kl_vals,
+            color=[COLORS[i % len(COLORS)] for i in range(len(games))],
+            edgecolor=EDGE_COLOR, linewidth=1.2,
+        )
+        for bar_rect, val in zip(bars, kl_vals):
+            ax.text(
+                bar_rect.get_x() + bar_rect.get_width() / 2, val,
+                f"{val:.3f}", ha="center", va="bottom", fontsize=9,
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels(games)
+        ax.set_ylabel("KL(Expert ‖ Consolidated)")
+        ax.set_title(f"KL Divergence per Task — λ = {lam}")
+        _save_fig(fig, figure_dir, f"lambda_kl_lam{lam:.1f}")
+
+    print(f"  Lambda grid plots saved to {figure_dir}")
+
+
+# ── Plot 10: KL divergence between consolidated and expert policies ─────────
+
+def plot_kl_divergence(
+    all_results: dict,
+    config: dict,
+    device: str,
+    union_actions: list,
+    figure_dir: str,
+) -> None:
+    """Compute and plot KL(expert || consolidated) per task per method.
+
+    Uses the same high-confidence state filtering as HTCL consolidation.
+    Requires that expert and consolidated checkpoints exist.
+    """
+    import torch.nn.functional as F2  # local import to not shadow module-level
+    from src.data.replay_buffer import ReplayBuffer
+    from src.data.atari_wrappers import make_atari_env, get_valid_actions
+
+    task_sequence = config["task_sequence"]
+    checkpoint_dir = config["logging"]["checkpoint_dir"]
+    tag = config.get("_tag", "default")
+
+    debug_enabled = config.get("debug", {}).get("enabled", False)
+    buffer_size = (
+        config["debug"].get("buffer_size_per_task", 2000)
+        if debug_enabled
+        else config.get("buffer_size_per_task", 50_000)
+    )
+    filtered_size = min(1000, buffer_size // 5)  # Small sample for KL
+
+    methods = [m for m in all_results if m != "Expert"]
+    if not methods:
+        print("  No consolidated methods available for KL comparison.")
+        return
+
+    # ── Collect states and expert policies ──
+    kl_data: dict = {}  # method -> {game: kl_value}
+
+    for method in methods:
+        kl_data[method] = {}
+        method_key = method.lower()
+        ckpt_path = os.path.join(
+            checkpoint_dir, tag, f"consolidated_{method_key}.pt",
+        )
+        if not os.path.exists(ckpt_path):
+            continue
+
+        consol_model = load_model_checkpoint(ckpt_path, config, device)
+        consol_model.eval()
+
+        for env_id in task_sequence:
+            game = env_id.replace("NoFrameskip-v4", "")
+            expert_ckpt = os.path.join(
+                checkpoint_dir, tag, f"expert_{game}_best.pt",
+            )
+            if not os.path.exists(expert_ckpt):
+                continue
+
+            expert_model = load_model_checkpoint(expert_ckpt, config, device)
+            expert_model.eval()
+            valid_actions = get_valid_actions(env_id, union_actions)
+
+            # Collect small replay and get filtered states
+            from scripts.consolidate import collect_replay_data
+
+            replay_buf = collect_replay_data(
+                env_id, expert_model, config, device, filtered_size,
+                union_actions,
+            )
+            states = replay_buf.sample_states(filtered_size)
+
+            # Compute KL(expert || consolidated)
+            mask = torch.full(
+                (consol_model.unified_action_dim,),
+                float("-inf"), device=device,
+            )
+            mask[valid_actions] = 0.0
+
+            total_kl = 0.0
+            n_batches = 0
+            with torch.no_grad():
+                for start in range(0, len(states), 256):
+                    batch = states[start : start + 256]
+                    e_q = expert_model(batch)
+                    e_probs = F2.softmax(e_q + mask.unsqueeze(0), dim=1)
+                    c_q = consol_model(batch)
+                    c_log_p = F2.log_softmax(c_q + mask.unsqueeze(0), dim=1)
+                    kl = F2.kl_div(c_log_p, e_probs, reduction="batchmean")
+                    total_kl += kl.item()
+                    n_batches += 1
+
+            kl_data[method][game] = total_kl / max(n_batches, 1)
+
+    # ── Plot ──
+    games = [e.replace("NoFrameskip-v4", "") for e in task_sequence]
+    valid_methods = [m for m in methods if kl_data.get(m)]
+    if not valid_methods:
+        print("  No KL data computed — skipping plot.")
+        return
+
+    n_methods = len(valid_methods)
+    fig, ax = plt.subplots(figsize=(max(6, len(games) * 2), 5))
+    x = np.arange(len(games))
+    bw = 0.8 / n_methods
+
+    for i, method in enumerate(valid_methods):
+        vals = [kl_data[method].get(g, 0) for g in games]
+        offset = (i - n_methods / 2 + 0.5) * bw
+        ax.bar(
+            x + offset, vals, bw, label=method,
+            color=_method_color(i + 1), edgecolor=EDGE_COLOR, linewidth=1.2,
+            hatch=HATCHES[(i + 1) % len(HATCHES)],
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(games)
+    ax.set_ylabel("KL(Expert ‖ Consolidated)")
+    ax.set_title("Policy Divergence: Expert vs Consolidated")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
+    _save_fig(fig, figure_dir, "kl_divergence_comparison")
+    print(f"  KL divergence plot saved to {figure_dir}")
+
+
+
 # ── Main evaluation pipeline ────────────────────────────────────────────────
 
 def main():
@@ -651,6 +864,16 @@ def main():
     fisher_path = os.path.join(checkpoint_dir, args.tag, "htcl_fisher_log.json")
     print("\nGenerating Fisher / Hessian diagnostic plots...")
     plot_fisher_diagnostics(fisher_path, figure_dir)
+
+    # Lambda grid search results
+    grid_path = os.path.join(checkpoint_dir, args.tag, "htcl_lambda_grid.json")
+    print("\nGenerating lambda grid search plots...")
+    plot_lambda_grid(grid_path, figure_dir)
+
+    # KL divergence analysis
+    print("\nComputing KL divergence between consolidated and expert policies...")
+    config["_tag"] = args.tag  # Pass tag through config for convenience
+    plot_kl_divergence(all_results, config, device, union_actions, figure_dir)
 
     # ── 4. Save numerical results (JSON) ────────────────────────────────────
     results_path = os.path.join(figure_dir, f"comparison_results_{args.tag}.json")
