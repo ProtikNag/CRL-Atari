@@ -1,0 +1,16 @@
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_distillation.pt
+Device: cuda
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-5.70 +/- 16.16 (min=-21.0, max=18.0)
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=3.00 +/- 3.00 (min=0.0, max=6.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=115.00 +/- 46.46 (min=45.0, max=175.0)
+
+Results saved to results/figures/eval_distillation_default.json

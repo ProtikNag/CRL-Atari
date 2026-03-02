@@ -35,31 +35,31 @@
     {
       "env_id": "PongNoFrameskip-v4",
       "game_name": "Pong",
-      "mean_reward": -16.9,
-      "std_reward": 12.3,
+      "mean_reward": -12.966666666666667,
+      "std_reward": 11.588739745498167,
       "min_reward": -21.0,
-      "max_reward": 20.0,
-      "median_reward": -21.0,
+      "max_reward": 18.0,
+      "median_reward": -20.0,
       "num_episodes": 30
     },
     {
       "env_id": "BreakoutNoFrameskip-v4",
       "game_name": "Breakout",
-      "mean_reward": 3.6,
-      "std_reward": 4.409081537009721,
+      "mean_reward": 2.0,
+      "std_reward": 2.8284271247461903,
       "min_reward": 0.0,
-      "max_reward": 9.0,
+      "max_reward": 6.0,
       "median_reward": 0.0,
       "num_episodes": 30
     },
     {
       "env_id": "SpaceInvadersNoFrameskip-v4",
       "game_name": "SpaceInvaders",
-      "mean_reward": 265.3333333333333,
-      "std_reward": 182.16262575573023,
-      "min_reward": 125.0,
-      "max_reward": 565.0,
-      "median_reward": 155.0,
+      "mean_reward": 97.16666666666667,
+      "std_reward": 45.0681582593397,
+      "min_reward": 45.0,
+      "max_reward": 175.0,
+      "median_reward": 95.0,
       "num_episodes": 30
     }
   ],
@@ -77,21 +77,21 @@
     {
       "env_id": "BreakoutNoFrameskip-v4",
       "game_name": "Breakout",
-      "mean_reward": 2.4,
-      "std_reward": 3.97994974842648,
+      "mean_reward": 0.0,
+      "std_reward": 0.0,
       "min_reward": 0.0,
-      "max_reward": 9.0,
+      "max_reward": 0.0,
       "median_reward": 0.0,
       "num_episodes": 30
     },
     {
       "env_id": "SpaceInvadersNoFrameskip-v4",
       "game_name": "SpaceInvaders",
-      "mean_reward": 992.5,
-      "std_reward": 279.3854863803773,
-      "min_reward": 570.0,
-      "max_reward": 1320.0,
-      "median_reward": 995.0,
+      "mean_reward": 285.0,
+      "std_reward": 0.0,
+      "min_reward": 285.0,
+      "max_reward": 285.0,
+      "median_reward": 285.0,
       "num_episodes": 30
     }
   ]
