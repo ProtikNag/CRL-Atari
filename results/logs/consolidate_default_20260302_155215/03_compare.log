@@ -1,0 +1,98 @@
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+posx and posy should be finite values
+
+============================================================
+Evaluating Expert Models
+============================================================
+  Expert (Pong): 19.80 ± 0.79
+  Expert (Breakout): 386.07 ± 35.05
+  Expert (SpaceInvaders): 1188.33 ± 111.27
+
+============================================================
+Evaluating Distillation Consolidated Model
+============================================================
+  Distillation on Pong: -12.97 ± 11.59
+  Distillation on Breakout: 2.00 ± 2.83
+  Distillation on SpaceInvaders: 97.17 ± 45.07
+
+============================================================
+Evaluating HTCL Consolidated Model
+============================================================
+  HTCL on Pong: -21.00 ± 0.00
+  HTCL on Breakout: 0.00 ± 0.00
+  HTCL on SpaceInvaders: 285.00 ± 0.00
+
+Generating comparison visualisations...
+  Saved → results/figures/{png,svg}/comparison_bar
+  Saved → results/figures/{png,svg}/performance_heatmap
+  Saved → results/figures/{png,svg}/reward_distributions
+  Saved → results/figures/{png,svg}/radar_chart
+  Saved → results/figures/{png,svg}/forgetting_gap
+  Saved → results/figures/{png,svg}/relative_performance
+  Saved → results/figures/{png,svg}/summary_table
+
+Generating Fisher / Hessian diagnostic plots...
+  Saved → results/figures/{png,svg}/fisher_global_stats
+  Saved → results/figures/{png,svg}/fisher_layer_heatmap
+  Saved → results/figures/{png,svg}/fisher_per_task_stats
+  Fisher diagnostic plots saved to results/figures
+
+Generating lambda grid search plots...
+  Saved → results/figures/{png,svg}/lambda_selection_curve
+  Saved → results/figures/{png,svg}/lambda_kl_lam0.1
+  Saved → results/figures/{png,svg}/lambda_kl_lam1.0
+  Saved → results/figures/{png,svg}/lambda_kl_lam10.0
+  Saved → results/figures/{png,svg}/lambda_kl_lam100.0
+  Saved → results/figures/{png,svg}/lambda_kl_lam1000.0
+  Lambda grid plots saved to results/figures
+
+Computing KL divergence between consolidated and expert policies...
+  Saved → results/figures/{png,svg}/kl_divergence_comparison
+  KL divergence plot saved to results/figures
+
+Numerical results saved to results/figures/comparison_results_default.json
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Method                         Pong       Breakout   SpaceInvaders        Average
+--------------------------------------------------------------------------------
+Expert                        19.80         386.07        1188.33         531.40
+Distillation                 -12.97           2.00          97.17          28.73
+HTCL                         -21.00           0.00         285.00          88.00
+================================================================================
+
+Retention (% of Expert):
+  Distillation          -65.5%     0.5%     8.2%  (avg -18.9%)
+  HTCL                 -106.1%     0.0%    24.0%  (avg -27.4%)
+
+LaTeX table:
+\begin{tabular}{lcccc}
+\toprule
+Method & Pong & Breakout & SpaceInvaders & Average \\
+\midrule
+Expert & 19.8 & 386.1 & 1188.3 & 531.4 \\
+Distillation & -13.0 & 2.0 & 97.2 & 28.7 \\
+HTCL & -21.0 & 0.0 & 285.0 & 88.0 \\
+\bottomrule
+\end{tabular}
