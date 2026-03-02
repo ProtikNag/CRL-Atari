@@ -1,3 +1,2 @@
-from src.consolidation.ewc import EWCConsolidator
 from src.consolidation.distillation import DistillationConsolidator
 from src.consolidation.htcl import HTCLConsolidator

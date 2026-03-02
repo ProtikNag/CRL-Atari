@@ -362,7 +362,7 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
         Continual Reinforcement Learning on Atari Games<br>
         Technical Report &mdash; Architecture, Methods, and Pipeline
     </div>
-    <div class="methods">EWC &nbsp;|&nbsp; Knowledge Distillation &nbsp;|&nbsp; HTCL</div>
+    <div class="methods">Knowledge Distillation &nbsp;|&nbsp; HTCL</div>
     <div class="author">Protik Nag</div>
     <div class="date">{datetime.now().strftime("%B %Y")}</div>
 </div>
@@ -381,7 +381,6 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
         <li><a href="#sec-training">DQN Agent and Training Loop</a></li>
         <li><a href="#sec-norm">Q-Value Normalization</a></li>
         <li><a href="#sec-init">Expert Initialization Strategy</a></li>
-        <li><a href="#sec-ewc">EWC Consolidation</a></li>
         <li><a href="#sec-distill">Knowledge Distillation Consolidation</a></li>
         <li><a href="#sec-htcl">HTCL Consolidation (Taylor Expansion)</a></li>
         <li><a href="#sec-lambda">Lambda Constraint and Catch-Up Iterations</a></li>
@@ -410,7 +409,6 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
         <li><strong>Consolidation</strong> &mdash; Merge the expert models into a single global
             model using one of three methods:
             <ul>
-                <li><strong>Elastic Weight Consolidation (EWC)</strong> &mdash; Fisher-weighted parameter regularization</li>
                 <li><strong>Knowledge Distillation</strong> &mdash; Temperature-scaled soft-target matching</li>
                 <li><strong>HTCL</strong> &mdash; Second-order Taylor expansion with closed-form parameter updates</li>
             </ul>
@@ -428,8 +426,8 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
             weights, avoiding any coupling between the sequential training order.</li>
         <li><strong>PopArt normalization</strong> &mdash; Q-value output layer weights are rescaled on-the-fly to
             handle scale differences across games (Pong rewards in [&minus;1, 1] vs. SpaceInvaders in [0, 500+]).</li>
-        <li><strong>Diagonal Fisher</strong> &mdash; Used by both EWC and HTCL as a computationally tractable
-            approximation to the Hessian, enabling element-wise closed-form updates in HTCL.</li>
+        <li><strong>Diagonal Fisher</strong> &mdash; Used by HTCL as a computationally tractable
+            approximation to the Hessian, enabling element-wise closed-form updates.</li>
     </ul>
 
     <div class="callout info">
@@ -467,7 +465,6 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
 
         <!-- Row 3: Consolidation Methods -->
         <div class="flow-row">
-            <div class="flow-box bg-gold">EWC<small>Fisher + L2 penalty</small></div>
             <div class="flow-box bg-purple">Distillation<small>KL-div soft targets</small></div>
             <div class="flow-box bg-red">HTCL<small>Taylor 2nd-order</small></div>
         </div>
@@ -476,7 +473,6 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
 
         <!-- Row 5: Consolidated Models -->
         <div class="flow-row">
-            <div class="flow-box bg-green">EWC Model<small>consolidated_ewc.pt</small></div>
             <div class="flow-box bg-green">Distill Model<small>consolidated_distill.pt</small></div>
             <div class="flow-box bg-green">HTCL Model<small>consolidated_htcl.pt</small></div>
         </div>
@@ -487,7 +483,7 @@ def generate_report(output_path: str = "docs/CRL_Atari_Technical_Report.html") -
         <div class="flow-row">
             <div class="flow-box bg-blue" style="min-width: 360px; font-size: 1rem;">
                 Evaluation on All Tasks
-                <small>Expert vs EWC vs Distillation vs HTCL</small>
+                <small>Expert vs Distillation vs HTCL</small>
             </div>
         </div>
 
@@ -773,7 +769,7 @@ Example for Breakout (minimal actions = [0, 1, 3, 4]):
             order of games does not affect individual expert quality.</li>
         <li>Each expert is free to find the best representation for its specific game without
             being biased by features from other games.</li>
-        <li>The consolidation methods (EWC, Distillation, HTCL) are specifically designed to
+        <li>The consolidation methods (Distillation, HTCL) are specifically designed to
             merge independently trained experts. They do not require experts to start from a
             common initialization.</li>
         <li>For HTCL, the initial global model for consolidation is simply the parameter average
@@ -790,65 +786,10 @@ Example for Breakout (minimal actions = [0, 1, 3, 4]):
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════
-     9. EWC CONSOLIDATION
-     ═══════════════════════════════════════════════════════════ -->
-<section id="sec-ewc">
-    <h2>9. EWC Consolidation</h2>
-    <p><em>Elastic Weight Consolidation</em> (Kirkpatrick et al., 2017)</p>
-
-    <h3>Concept</h3>
-    <p>After training on a task, certain parameters are more &ldquo;important&rdquo; for that task.
-    EWC uses the diagonal Fisher Information Matrix (FIM) as a proxy for importance.
-    During consolidation, parameters with high Fisher values are penalized more for
-    deviating from their task-optimal values.</p>
-
-    <h3>Step 1: Compute Diagonal Fisher</h3>
-    <p>For each task <em>t</em> with expert w*<sub>t</sub> and replay buffer D<sub>t</sub>:</p>
-    <div class="equation">
-        F<sub>i</sub><sup>(t)</sup> = E<sub>s~D<sub>t</sub></sub>
-        [ (&part; log &pi;(a|s) / &part; &theta;<sub>i</sub>)&sup2; ]
-    </div>
-    <p>Approximated by sampling <code>fisher_samples=2000</code> states from the replay buffer,
-    computing the squared gradient of the log-policy (Q-values with softmax).</p>
-
-    <h3>Step 2: Online EWC (Accumulate Across Tasks)</h3>
-    <div class="equation">
-        F<sub>cumulative</sub> = &gamma; &middot; F<sub>cumulative</sub> + F<sub>new</sub>
-    </div>
-    <p>with &gamma; = 0.95, giving exponentially decayed importance.</p>
-
-    <h3>Step 3: Consolidation Objective</h3>
-    <p>Starting from the parameter average of all experts, optimize:</p>
-    <div class="equation">
-        L = L<sub>EWC</sub> + L<sub>avg</sub>
-    </div>
-    <p>where:</p>
-    <div class="equation">
-        L<sub>EWC</sub> = (&lambda;<sub>EWC</sub> / 2T) &middot; &Sigma;<sub>t</sub> &Sigma;<sub>i</sub>
-        F<sub>i</sub><sup>(t)</sup> &middot; (&theta;<sub>i</sub> &minus; &theta;<sub>i</sub>*<sup>(t)</sup>)&sup2;<br><br>
-        L<sub>avg</sub> = (1/T) &middot; &Sigma;<sub>t</sub> || &theta; &minus; &theta;*<sup>(t)</sup> ||&sup2;
-    </div>
-    <p>&lambda;<sub>EWC</sub> = 5000. Optimization: AdamW for <code>consolidation_steps=5000</code> (500 in debug).</p>
-
-    <h3>Interpretation</h3>
-    <ul>
-        <li>Parameters important for a task (high Fisher) are pulled toward the task optimum.</li>
-        <li>Parameters unimportant for all tasks are free to move.</li>
-        <li>The parameter average term L<sub>avg</sub> acts as a gentle pull toward all experts.</li>
-    </ul>
-
-    <div class="callout">
-        <strong>Limitations:</strong> Diagonal Fisher ignores parameter correlations. The quadratic
-        penalty may be too conservative for large parameter shifts. Approximation quality degrades
-        as the number of tasks grows.
-    </div>
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════
-     10. KNOWLEDGE DISTILLATION
+     9. KNOWLEDGE DISTILLATION
      ═══════════════════════════════════════════════════════════ -->
 <section id="sec-distill">
-    <h2>10. Knowledge Distillation Consolidation</h2>
+    <h2>9. Knowledge Distillation Consolidation</h2>
 
     <h3>Concept</h3>
     <p>Train a &ldquo;student&rdquo; model (the global/consolidated model) to mimic the output
@@ -879,7 +820,7 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     sample batch from each task's replay buffer, compute distillation loss, and update
     the student with AdamW (lr = 5e-5).</p>
 
-    <h3>Advantages Over EWC</h3>
+    <h3>Advantages</h3>
     <ul>
         <li>Directly optimizes output similarity (behavioral cloning in Q-space).</li>
         <li>Does not require Fisher computation.</li>
@@ -935,7 +876,7 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     <p>After each merge, <strong>catch-up iterations</strong> refine the result (see next section).</p>
 
     <div class="callout info">
-        <strong>Compared to EWC:</strong> EWC uses an L2 penalty weighted by Fisher. HTCL uses the
+        <strong>Key insight:</strong> HTCL uses the
         full second-order expansion, yielding an optimal direction, not just regularization.
         HTCL's closed-form update is a single step (no iterative optimization). HTCL explicitly
         accounts for the gradient at the global position, not just the distance to task optima.
@@ -1013,7 +954,6 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     <table>
         <tr><th>Method</th><th>Pong</th><th>Breakout</th><th>SpaceInvaders</th><th>Average</th></tr>
         <tr><td>Expert</td><td>E<sub>pong</sub></td><td>E<sub>break</sub></td><td>E<sub>space</sub></td><td>avg(E)</td></tr>
-        <tr><td>EWC</td><td>ewc<sub>p</sub></td><td>ewc<sub>b</sub></td><td>ewc<sub>s</sub></td><td>avg(ewc)</td></tr>
         <tr><td>Distillation</td><td>dist<sub>p</sub></td><td>dist<sub>b</sub></td><td>dist<sub>s</sub></td><td>avg(dist)</td></tr>
         <tr><td>HTCL</td><td>htcl<sub>p</sub></td><td>htcl<sub>b</sub></td><td>htcl<sub>s</sub></td><td>avg(htcl)</td></tr>
     </table>
@@ -1063,12 +1003,6 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
         <tr><td class="category cat-norm" rowspan="2">Normalization</td>
             <td>Method</td><td>popart</td><td>same</td></tr>
         <tr><td>Momentum</td><td>0.01</td><td>same</td></tr>
-
-        <tr><td class="category cat-ewc" rowspan="4">EWC</td>
-            <td>Lambda</td><td>5,000</td><td>same</td></tr>
-        <tr><td>Fisher samples</td><td>2,000</td><td>100</td></tr>
-        <tr><td>Online gamma</td><td>0.95</td><td>same</td></tr>
-        <tr><td>Consolidation steps</td><td>5,000</td><td>500</td></tr>
 
         <tr><td class="category cat-distill" rowspan="5">Distillation</td>
             <td>Temperature</td><td>2.0</td><td>same</td></tr>

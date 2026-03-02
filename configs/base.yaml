@@ -79,13 +79,6 @@ env:
 consolidation:
   # Each expert starts from random initialization (no global-to-local init).
 
-# --- EWC ---
-ewc:
-  lambda_ewc: 5000.0
-  fisher_samples: 2000
-  online: true
-  gamma_ewc: 0.95  # decay for online EWC
-
 # --- Knowledge Distillation ---
 distillation:
   temperature: 2.0
@@ -99,8 +92,10 @@ distillation:
 htcl:
   hierarchy_levels: 2
   group_size: 2
-  lambda_htcl: 100_000.0  # Must satisfy: lambda > -mu_min(H)
-  lambda_auto: true  # Auto-adjust lambda to satisfy constraint
+  # High lambda dominates the Hessian, making the update closer to a
+  # trust-region step toward the expert.  No need for lambda_auto.
+  lambda_htcl: 200_000.0
+  lambda_auto: false
   lambda_margin: 0.1  # Safety margin above -mu_min(H)
   fisher_samples: 2000
   catch_up_iterations: 10

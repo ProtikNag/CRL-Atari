@@ -1,7 +1,15 @@
 """
-Compare expert models vs consolidated models across all tasks.
+Comprehensive comparison of Expert vs Consolidated models.
 
-Generates comparison tables and publication-quality plots.
+Generates publication-quality visualisations from multiple perspectives:
+  1. Grouped bar chart  — mean reward per game per method
+  2. Performance retention heatmap  — % of expert score retained
+  3. Box plots  — per-episode reward distributions
+  4. Radar / spider chart  — normalised multi-game profile
+  5. Forgetting analysis  — reward gap (expert − consolidated)
+  6. Relative performance bar  — % of expert per game
+  7. Summary statistics table (also LaTeX-ready)
+  8. Fisher / Hessian diagnostic plots (if htcl_fisher_log.json exists)
 
 Usage:
     python scripts/compare.py [--debug] [--tag TAG]
@@ -27,55 +35,73 @@ from scripts.evaluate import evaluate_on_task, build_model
 
 import torch
 
-# ── Visualization palette and style ──────────────────────────────────────────
+# ── Visualisation palette and global rcParams ────────────────────────────────
 
 PALETTE = {
-    "pastel_blue": "#A8D8EA",
-    "pastel_pink": "#F4B6C2",
-    "pastel_green": "#B5EAD7",
+    "pastel_blue":   "#A8D8EA",
+    "pastel_pink":   "#F4B6C2",
+    "pastel_green":  "#B5EAD7",
     "pastel_yellow": "#FFEEAD",
     "pastel_purple": "#C3B1E1",
     "pastel_orange": "#FFD8B1",
-    "pastel_red": "#F5A6A6",
-    "pastel_teal": "#A0D2DB",
+    "pastel_red":    "#F5A6A6",
+    "pastel_teal":   "#A0D2DB",
 }
 COLORS = list(PALETTE.values())
 EDGE_COLOR = "#1a1a1a"
 HATCHES = [None, "//", "\\\\", "xx", "..", "||", "--", "++"]
+MARKERS = ["o", "s", "^", "D", "v", "P"]
 
-plt.rcParams.update(
-    {
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "DejaVu Serif"],
-        "font.size": 11,
-        "axes.titlesize": 13,
-        "axes.labelsize": 12,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
-        "axes.edgecolor": EDGE_COLOR,
-        "axes.linewidth": 1.2,
-        "axes.facecolor": "#FAFAFA",
-        "axes.grid": True,
-        "axes.axisbelow": True,
-        "grid.color": "#E0E0E0",
-        "grid.linewidth": 0.6,
-        "grid.alpha": 0.7,
-        "figure.facecolor": "white",
-        "figure.dpi": 150,
-        "savefig.dpi": 300,
-        "savefig.bbox": "tight",
-        "savefig.facecolor": "white",
-        "legend.frameon": True,
-        "legend.edgecolor": EDGE_COLOR,
-        "legend.fancybox": False,
-        "legend.framealpha": 0.9,
-        "xtick.direction": "out",
-        "ytick.direction": "out",
-        "xtick.major.width": 1.0,
-        "ytick.major.width": 1.0,
-    }
-)
+plt.rcParams.update({
+    "font.family":       "serif",
+    "font.serif":        ["Times New Roman", "DejaVu Serif"],
+    "font.size":         11,
+    "axes.titlesize":    13,
+    "axes.labelsize":    12,
+    "xtick.labelsize":   10,
+    "ytick.labelsize":   10,
+    "legend.fontsize":   10,
+    "axes.edgecolor":    EDGE_COLOR,
+    "axes.linewidth":    1.2,
+    "axes.facecolor":    "#FAFAFA",
+    "axes.grid":         True,
+    "axes.axisbelow":    True,
+    "grid.color":        "#E0E0E0",
+    "grid.linewidth":    0.6,
+    "grid.alpha":        0.7,
+    "figure.facecolor":  "white",
+    "figure.dpi":        150,
+    "savefig.dpi":       300,
+    "savefig.bbox":      "tight",
+    "savefig.facecolor": "white",
+    "legend.frameon":    True,
+    "legend.edgecolor":  EDGE_COLOR,
+    "legend.fancybox":   False,
+    "legend.framealpha": 0.9,
+    "xtick.direction":   "out",
+    "ytick.direction":   "out",
+    "xtick.major.width": 1.0,
+    "ytick.major.width": 1.0,
+})
+
+
+# ── Utility helpers ──────────────────────────────────────────────────────────
+
+def _save_fig(fig: plt.Figure, figure_dir: str, filename: str) -> None:
+    """Save a figure to both png/ and svg/ sub-directories."""
+    for fmt in ("png", "svg"):
+        out_dir = os.path.join(figure_dir, fmt)
+        os.makedirs(out_dir, exist_ok=True)
+        fig.savefig(
+            os.path.join(out_dir, f"{filename}.{fmt}"),
+            dpi=300, bbox_inches="tight", facecolor="white",
+        )
+    plt.close(fig)
+    print(f"  Saved → {figure_dir}/{{png,svg}}/{filename}")
+
+
+def _method_color(idx: int) -> str:
+    return COLORS[idx % len(COLORS)]
 
 
 def load_model_checkpoint(path: str, config: dict, device: str) -> DQNNetwork:
@@ -89,151 +115,444 @@ def load_model_checkpoint(path: str, config: dict, device: str) -> DQNNetwork:
     return model
 
 
-def plot_comparison_bar(
-    results: dict,
-    figure_dir: str,
-    filename: str = "comparison",
-):
-    """Create a grouped bar chart comparing methods across games.
+# ── Plot 1: Grouped bar chart ───────────────────────────────────────────────
 
-    Args:
-        results: Dict mapping method_name -> list of {game, mean_reward, std_reward}.
-        figure_dir: Output directory for figures.
-        filename: Base filename (without extension).
-    """
+def plot_grouped_bar(
+    results: dict, figure_dir: str, filename: str = "comparison_bar",
+) -> None:
+    """Grouped bar chart comparing mean rewards across methods and games."""
     methods = list(results.keys())
     games = [r["game_name"] for r in results[methods[0]]]
-    num_games = len(games)
-    num_methods = len(methods)
+    n_games = len(games)
+    n_methods = len(methods)
 
-    fig, ax = plt.subplots(figsize=(max(7, num_games * 2.5), 5))
-
-    bar_width = 0.8 / num_methods
-    x = np.arange(num_games)
+    fig, ax = plt.subplots(figsize=(max(7, n_games * 2.5), 5))
+    bw = 0.8 / n_methods
+    x = np.arange(n_games)
 
     for i, method in enumerate(methods):
         means = [r["mean_reward"] for r in results[method]]
-        stds = [r["std_reward"] for r in results[method]]
-        offset = (i - num_methods / 2 + 0.5) * bar_width
-
-        bars = ax.bar(
-            x + offset,
-            means,
-            bar_width,
-            yerr=stds,
-            label=method,
-            color=COLORS[i % len(COLORS)],
-            edgecolor=EDGE_COLOR,
-            linewidth=1.2,
+        stds  = [r["std_reward"]  for r in results[method]]
+        offset = (i - n_methods / 2 + 0.5) * bw
+        ax.bar(
+            x + offset, means, bw, yerr=stds, label=method,
+            color=_method_color(i), edgecolor=EDGE_COLOR, linewidth=1.2,
             hatch=HATCHES[i % len(HATCHES)],
-            capsize=4,
-            error_kw={"linewidth": 1.0, "capthick": 1.0},
+            capsize=4, error_kw={"linewidth": 1.0, "capthick": 1.0},
         )
 
     ax.set_xlabel("Atari Game")
     ax.set_ylabel("Mean Episode Reward")
-    ax.set_title("Expert vs. Consolidated Model Performance")
+    ax.set_title("Expert vs Consolidated Model Performance")
     ax.set_xticks(x)
     ax.set_xticklabels(games)
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
-
-    for fmt in ("png", "svg"):
-        out_dir = os.path.join(figure_dir, fmt)
-        os.makedirs(out_dir, exist_ok=True)
-        fig.savefig(
-            os.path.join(out_dir, f"{filename}.{fmt}"),
-            dpi=300,
-            bbox_inches="tight",
-            facecolor="white",
-        )
-    plt.close(fig)
-    print(f"Saved comparison plot to {figure_dir}/{{png,svg}}/{filename}")
+    _save_fig(fig, figure_dir, filename)
 
 
-def plot_forgetting_heatmap(
-    results: dict,
-    figure_dir: str,
-    filename: str = "forgetting_heatmap",
-):
-    """Create a heatmap showing performance of each method on each task.
+# ── Plot 2: Performance heatmap ─────────────────────────────────────────────
 
-    Args:
-        results: Dict mapping method_name -> list of {game, mean_reward}.
-        figure_dir: Output directory.
-        filename: Base filename.
-    """
+def plot_performance_heatmap(
+    results: dict, figure_dir: str, filename: str = "performance_heatmap",
+) -> None:
+    """Heatmap showing raw rewards and percentage of expert performance."""
     methods = list(results.keys())
     games = [r["game_name"] for r in results[methods[0]]]
 
-    # Build matrix
     matrix = np.zeros((len(methods), len(games)))
     for i, method in enumerate(methods):
         for j, r in enumerate(results[method]):
             matrix[i, j] = r["mean_reward"]
 
-    # Normalize per-game (show relative to expert)
-    # Expert is always the first method
+    # Normalise to expert
+    norm = np.full_like(matrix, 100.0)
     if "Expert" in methods:
-        expert_idx = methods.index("Expert")
-        expert_vals = matrix[expert_idx]
-        # Compute ratio to expert (percentage retained)
-        norm_matrix = np.zeros_like(matrix)
-        for i in range(len(methods)):
-            for j in range(len(games)):
-                if abs(expert_vals[j]) > 1e-6:
-                    norm_matrix[i, j] = matrix[i, j] / abs(expert_vals[j]) * 100
-                else:
-                    norm_matrix[i, j] = 100.0
-    else:
-        norm_matrix = matrix
+        eidx = methods.index("Expert")
+        for j in range(len(games)):
+            ev = abs(matrix[eidx, j])
+            if ev > 1e-6:
+                norm[:, j] = matrix[:, j] / ev * 100
 
-    pastel_cmap = LinearSegmentedColormap.from_list(
-        "pastel_heat", ["#F5A6A6", "#FFEEAD", "#B5EAD7"], N=256
+    cmap = LinearSegmentedColormap.from_list(
+        "pastel_heat", ["#F5A6A6", "#FFEEAD", "#B5EAD7"], N=256,
     )
+    fig, ax = plt.subplots(
+        figsize=(max(6, len(games) * 2), max(4, len(methods) * 1.2)),
+    )
+    im = ax.imshow(norm, cmap=cmap, aspect="auto", vmin=0, vmax=150)
 
-    fig, ax = plt.subplots(figsize=(max(6, len(games) * 2), max(4, len(methods) * 1.2)))
-    im = ax.imshow(norm_matrix, cmap=pastel_cmap, aspect="auto")
-
-    # Annotate cells
     for i in range(len(methods)):
         for j in range(len(games)):
-            raw_val = matrix[i, j]
-            pct = norm_matrix[i, j]
-            text_color = "black" if pct > 50 else "white"
+            tc = "black" if norm[i, j] > 50 else "white"
             ax.text(
-                j, i, f"{raw_val:.1f}\n({pct:.0f}%)",
-                ha="center", va="center", fontsize=9, color=text_color,
+                j, i, f"{matrix[i, j]:.1f}\n({norm[i, j]:.0f}%)",
+                ha="center", va="center", fontsize=9, color=tc,
             )
 
     ax.set_xticks(range(len(games)))
     ax.set_xticklabels(games)
     ax.set_yticks(range(len(methods)))
     ax.set_yticklabels(methods)
-    ax.set_title("Performance Matrix (Raw Reward & % of Expert)")
-
+    ax.set_title("Performance Matrix  (Raw Reward & % of Expert)")
     plt.colorbar(im, ax=ax, label="% of Expert Performance")
+    _save_fig(fig, figure_dir, filename)
 
-    for fmt in ("png", "svg"):
-        out_dir = os.path.join(figure_dir, fmt)
-        os.makedirs(out_dir, exist_ok=True)
-        fig.savefig(
-            os.path.join(out_dir, f"{filename}.{fmt}"),
-            dpi=300, bbox_inches="tight", facecolor="white",
+
+# ── Plot 3: Box-and-whisker distributions ────────────────────────────────────
+
+def plot_box_distributions(
+    results: dict, figure_dir: str, filename: str = "reward_distributions",
+) -> None:
+    """Box plots of per-episode reward distributions for every game."""
+    methods = list(results.keys())
+    games = [r["game_name"] for r in results[methods[0]]]
+    n_games = len(games)
+
+    fig, axes = plt.subplots(
+        1, n_games, figsize=(5 * n_games, 5), sharey=False,
+        constrained_layout=True,
+    )
+    if n_games == 1:
+        axes = [axes]
+
+    for gidx, game in enumerate(games):
+        ax = axes[gidx]
+        data, labels = [], []
+        for midx, method in enumerate(methods):
+            ep = results[method][gidx].get("all_rewards", [])
+            if ep:
+                data.append(ep)
+                labels.append(method)
+
+        if not data:
+            continue
+
+        bp = ax.boxplot(
+            data, patch_artist=True, notch=True, widths=0.55,
+            medianprops=dict(color="black", linewidth=1.5),
+            whiskerprops=dict(color=EDGE_COLOR, linewidth=1.0),
+            capprops=dict(color=EDGE_COLOR, linewidth=1.0),
+            flierprops=dict(
+                marker="o", markerfacecolor="#CCCCCC",
+                markeredgecolor=EDGE_COLOR, markersize=4, alpha=0.6,
+            ),
         )
-    plt.close(fig)
-    print(f"Saved heatmap to {figure_dir}/{{png,svg}}/{filename}")
+        for pidx, patch in enumerate(bp["boxes"]):
+            patch.set_facecolor(_method_color(pidx))
+            patch.set_edgecolor(EDGE_COLOR)
+            patch.set_linewidth(1.2)
 
+        ax.set_xticklabels(labels, rotation=30, ha="right")
+        ax.set_title(game)
+        ax.set_ylabel("Episode Reward")
+
+    fig.suptitle("Per-Episode Reward Distributions", fontsize=14, y=1.02)
+    _save_fig(fig, figure_dir, filename)
+
+
+# ── Plot 4: Radar / spider chart ────────────────────────────────────────────
+
+def plot_radar(
+    results: dict, figure_dir: str, filename: str = "radar_chart",
+) -> None:
+    """Radar chart normalised to expert performance per game."""
+    methods = list(results.keys())
+    games = [r["game_name"] for r in results[methods[0]]]
+    n_games = len(games)
+
+    expert_vals = np.array(
+        [r["mean_reward"] for r in results.get("Expert", results[methods[0]])]
+    )
+    norm_scores = {}
+    for method in methods:
+        raw = np.array([r["mean_reward"] for r in results[method]])
+        safe = np.where(np.abs(expert_vals) > 1e-6, expert_vals, 1.0)
+        norm_scores[method] = np.clip(raw / safe, 0, 1.5)
+
+    angles = np.linspace(0, 2 * np.pi, n_games, endpoint=False).tolist()
+    angles += angles[:1]
+
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+    for midx, method in enumerate(methods):
+        vals = norm_scores[method].tolist() + [norm_scores[method][0]]
+        ax.plot(
+            angles, vals, color=COLORS[midx % len(COLORS)],
+            linewidth=2.0, marker=MARKERS[midx % len(MARKERS)],
+            markeredgecolor=EDGE_COLOR, markeredgewidth=0.8,
+            markersize=7, label=method,
+        )
+        ax.fill(angles, vals, color=COLORS[midx % len(COLORS)], alpha=0.15)
+
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(games, fontsize=11)
+    ax.set_ylim(0, 1.3)
+    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+    ax.set_yticklabels(["25%", "50%", "75%", "100%"], fontsize=8, color="gray")
+    ax.set_title("Normalised Performance Profile\n(100% = Expert)", y=1.08)
+    ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.1))
+    _save_fig(fig, figure_dir, filename)
+
+
+# ── Plot 5: Forgetting gap ──────────────────────────────────────────────────
+
+def plot_forgetting_gap(
+    results: dict, figure_dir: str, filename: str = "forgetting_gap",
+) -> None:
+    """Horizontal bar chart of reward gap (expert − consolidated) per game."""
+    if "Expert" not in results:
+        return
+    methods = [m for m in results if m != "Expert"]
+    if not methods:
+        return
+
+    games = [r["game_name"] for r in results["Expert"]]
+    n_games = len(games)
+    n_methods = len(methods)
+    expert_means = np.array([r["mean_reward"] for r in results["Expert"]])
+
+    fig, ax = plt.subplots(figsize=(8, max(4, n_games * 0.9)))
+    bh = 0.8 / n_methods
+    y = np.arange(n_games)
+
+    for midx, method in enumerate(methods):
+        m_means = np.array([r["mean_reward"] for r in results[method]])
+        gaps = expert_means - m_means
+        offset = (midx - n_methods / 2 + 0.5) * bh
+        ax.barh(
+            y + offset, gaps, bh, label=method,
+            color=_method_color(midx + 1),
+            edgecolor=EDGE_COLOR, linewidth=1.0,
+            hatch=HATCHES[(midx + 1) % len(HATCHES)],
+        )
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(games)
+    ax.set_xlabel("Reward Gap  (Expert − Consolidated)")
+    ax.set_title("Forgetting Analysis  (positive = forgetting, negative = improvement)")
+    ax.axvline(0, color=EDGE_COLOR, linewidth=0.8)
+    ax.legend(loc="lower right")
+    _save_fig(fig, figure_dir, filename)
+
+
+# ── Plot 6: Relative performance bar ────────────────────────────────────────
+
+def plot_relative_bar(
+    results: dict, figure_dir: str, filename: str = "relative_performance",
+) -> None:
+    """Bar chart showing % of expert performance for each consolidated method."""
+    if "Expert" not in results:
+        return
+    methods = [m for m in results if m != "Expert"]
+    if not methods:
+        return
+
+    games = [r["game_name"] for r in results["Expert"]]
+    expert_means = np.array([r["mean_reward"] for r in results["Expert"]])
+    n_games = len(games)
+    n_methods = len(methods)
+
+    fig, ax = plt.subplots(figsize=(max(7, n_games * 2.5), 5))
+    bw = 0.8 / n_methods
+    x = np.arange(n_games)
+
+    for midx, method in enumerate(methods):
+        m_means = np.array([r["mean_reward"] for r in results[method]])
+        safe = np.where(np.abs(expert_means) > 1e-6, expert_means, 1.0)
+        pcts = m_means / safe * 100
+        offset = (midx - n_methods / 2 + 0.5) * bw
+        ax.bar(
+            x + offset, pcts, bw, label=method,
+            color=_method_color(midx + 1),
+            edgecolor=EDGE_COLOR, linewidth=1.2,
+            hatch=HATCHES[(midx + 1) % len(HATCHES)],
+        )
+        for xi, pct in zip(x + offset, pcts):
+            ax.text(xi, pct + 1, f"{pct:.0f}%", ha="center", va="bottom", fontsize=8)
+
+    ax.axhline(100, color=EDGE_COLOR, linewidth=0.8, linestyle="--",
+               label="Expert (100%)")
+    ax.set_xlabel("Atari Game")
+    ax.set_ylabel("% of Expert Reward")
+    ax.set_title("Performance Retention  (% of Expert)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(games)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
+    _save_fig(fig, figure_dir, filename)
+
+
+# ── Plot 7: Summary table (rendered as figure) ──────────────────────────────
+
+def plot_summary_table(
+    results: dict, figure_dir: str, filename: str = "summary_table",
+) -> None:
+    """Render a publication-ready summary table as a figure image."""
+    methods = list(results.keys())
+    games = [r["game_name"] for r in results[methods[0]]]
+
+    col_labels = games + ["Average"]
+    cell_text = []
+    for method in methods:
+        row = []
+        rewards = []
+        for r in results[method]:
+            row.append(f"{r['mean_reward']:.1f} ± {r['std_reward']:.1f}")
+            rewards.append(r["mean_reward"])
+        row.append(f"{np.mean(rewards):.1f}")
+        cell_text.append(row)
+
+    fig, ax = plt.subplots(
+        figsize=(max(7, len(col_labels) * 2.2), max(2, len(methods) * 0.8 + 1)),
+    )
+    ax.axis("off")
+    table = ax.table(
+        cellText=cell_text, rowLabels=methods, colLabels=col_labels,
+        loc="center", cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.0, 1.6)
+
+    # Style header
+    for j in range(len(col_labels)):
+        table[0, j].set_facecolor(PALETTE["pastel_blue"])
+        table[0, j].set_edgecolor(EDGE_COLOR)
+    for i in range(len(methods)):
+        table[i + 1, -1].set_facecolor(PALETTE["pastel_yellow"])
+
+    ax.set_title("Summary Statistics", fontsize=13, pad=20)
+    _save_fig(fig, figure_dir, filename)
+
+
+# ── Plot 8: Fisher / Hessian diagnostics ─────────────────────────────────────
+
+def plot_fisher_diagnostics(fisher_log_path: str, figure_dir: str) -> None:
+    """Plot Fisher diagnostics from the saved HTCL JSON log.
+
+    Generates:
+      * fisher_global_stats — line plot of global Fisher statistics vs task
+      * fisher_layer_heatmap — heatmap of per-layer mean Fisher (cumulative)
+      * fisher_per_task_stats — per-task (non-cumulative) statistics
+    """
+    if not os.path.exists(fisher_log_path):
+        print(f"  Fisher log not found at {fisher_log_path}, skipping Fisher plots.")
+        return
+
+    with open(fisher_log_path, "r") as f:
+        fisher_log = json.load(f)
+
+    if not fisher_log:
+        return
+
+    cumulative = [e for e in fisher_log if e["kind"] == "cumulative"]
+    per_task   = [e for e in fisher_log if e["kind"] == "task"]
+
+    # ── 8a: Cumulative global stats ──
+    if cumulative:
+        fig, axes = plt.subplots(1, 3, figsize=(15, 4), constrained_layout=True)
+        labels = [e["game_name"] for e in cumulative]
+        xs = list(range(1, len(cumulative) + 1))
+
+        for ax, stat, title in zip(
+            axes,
+            ["mean", "max", "nonzero_frac"],
+            ["Mean Fisher (cumulative)", "Max Fisher (cumulative)",
+             "Non-zero Fraction"],
+        ):
+            vals = [e["global"][stat] for e in cumulative]
+            ax.plot(xs, vals, color=PALETTE["pastel_purple"],
+                    marker="o", markeredgecolor=EDGE_COLOR,
+                    markeredgewidth=0.8, markersize=8, linewidth=2.0)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labels, rotation=20, ha="right")
+            ax.set_title(title)
+            ax.set_xlabel("Task")
+
+        fig.suptitle(
+            "Cumulative Fisher (Hessian Diagonal) Diagnostics",
+            fontsize=14, y=1.02,
+        )
+        _save_fig(fig, figure_dir, "fisher_global_stats")
+
+    # ── 8b: Per-layer Fisher heatmap ──
+    if cumulative:
+        all_layers = list(cumulative[0]["per_layer"].keys())
+        short = [
+            n.replace("features.", "F.").replace("head.", "H.")
+            for n in all_layers
+        ]
+        labels = [e["game_name"] for e in cumulative]
+
+        mat = np.zeros((len(all_layers), len(cumulative)))
+        for tidx, entry in enumerate(cumulative):
+            for lidx, layer in enumerate(all_layers):
+                mat[lidx, tidx] = entry["per_layer"].get(
+                    layer, {},
+                ).get("mean", 0.0)
+
+        log_mat = np.log10(mat + 1e-12)
+        cmap = LinearSegmentedColormap.from_list(
+            "fisher_heat",
+            ["#FFFFFF", "#A8D8EA", "#C3B1E1", "#F4B6C2"],
+            N=256,
+        )
+        fig, ax = plt.subplots(
+            figsize=(
+                max(6, len(labels) * 2),
+                max(5, len(all_layers) * 0.35),
+            ),
+        )
+        im = ax.imshow(log_mat, cmap=cmap, aspect="auto")
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels)
+        ax.set_yticks(range(len(all_layers)))
+        ax.set_yticklabels(short, fontsize=8)
+        ax.set_title("Per-Layer Mean Fisher  (log₁₀, cumulative)")
+        plt.colorbar(im, ax=ax, label="log₁₀(mean Fisher)")
+        _save_fig(fig, figure_dir, "fisher_layer_heatmap")
+
+    # ── 8c: Per-task (non-cumulative) stats ──
+    if per_task:
+        labels = [e["game_name"] for e in per_task]
+        xs = list(range(len(labels)))
+        fig, ax = plt.subplots(figsize=(max(6, len(labels) * 2.5), 5))
+
+        for stat, col, marker, lbl in [
+            ("mean", PALETTE["pastel_blue"],  "o", "Mean"),
+            ("max",  PALETTE["pastel_pink"],  "s", "Max"),
+            ("std",  PALETTE["pastel_green"], "^", "Std"),
+        ]:
+            vals = [e["global"][stat] for e in per_task]
+            ax.plot(
+                xs, vals, color=col, marker=marker,
+                markeredgecolor=EDGE_COLOR, markeredgewidth=0.8,
+                markersize=7, linewidth=2.0, label=lbl,
+            )
+
+        ax.set_xticks(xs)
+        ax.set_xticklabels(labels)
+        ax.set_xlabel("Task")
+        ax.set_ylabel("Fisher Statistic")
+        ax.set_title("Per-Task Fisher Statistics  (not cumulative)")
+        ax.legend()
+        _save_fig(fig, figure_dir, "fisher_per_task_stats")
+
+    print(f"  Fisher diagnostic plots saved to {figure_dir}")
+
+
+# ── Main evaluation pipeline ────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare expert vs consolidated models.")
+    parser = argparse.ArgumentParser(
+        description="Comprehensive comparison: expert vs consolidated models.",
+    )
     parser.add_argument(
-        "--config", type=str, default="configs/base.yaml", help="Config file."
+        "--config", type=str, default="configs/base.yaml", help="Config file.",
     )
     parser.add_argument("--debug", action="store_true", help="Debug mode.")
     parser.add_argument("--device", type=str, default=None, help="Device.")
     parser.add_argument("--tag", type=str, default="default", help="Experiment tag.")
     parser.add_argument(
-        "--episodes", type=int, default=None, help="Eval episodes per task."
+        "--episodes", type=int, default=None, help="Eval episodes per task.",
     )
     args = parser.parse_args()
 
@@ -253,112 +572,158 @@ def main():
     checkpoint_dir = config["logging"]["checkpoint_dir"]
     figure_dir = config["logging"]["figure_dir"]
 
-    # Compute union action space
     union_actions = compute_union_action_space(config["task_sequence"])
     config["model"]["unified_action_dim"] = len(union_actions)
 
     task_sequence = config["task_sequence"]
-    all_results = {}
+    all_results: dict = {}
 
-    # ── 1. Evaluate each expert on ALL tasks ──
+    # ── 1. Evaluate each expert on its own task ─────────────────────────────
     print("\n" + "=" * 60)
     print("Evaluating Expert Models")
     print("=" * 60)
 
-    expert_per_task_results = []
+    expert_results = []
     for env_id in task_sequence:
-        game_name = env_id.replace("NoFrameskip-v4", "")
-        ckpt_path = os.path.join(checkpoint_dir, args.tag, f"expert_{game_name}_best.pt")
-
-        if not os.path.exists(ckpt_path):
-            print(f"WARNING: Expert checkpoint not found for {game_name}, skipping.")
+        game = env_id.replace("NoFrameskip-v4", "")
+        ckpt = os.path.join(checkpoint_dir, args.tag, f"expert_{game}_best.pt")
+        if not os.path.exists(ckpt):
+            print(f"WARNING: Expert checkpoint not found for {game}, skipping.")
             continue
 
-        model = load_model_checkpoint(ckpt_path, config, device)
-
-        # Evaluate this expert on its own task
-        result = evaluate_on_task(model, env_id, config, device, union_actions, num_episodes)
-        expert_per_task_results.append(result)
+        model = load_model_checkpoint(ckpt, config, device)
+        result = evaluate_on_task(
+            model, env_id, config, device, union_actions, num_episodes,
+        )
+        expert_results.append(result)
         print(
-            f"  Expert ({game_name}) on {game_name}: "
-            f"{result['mean_reward']:.2f} +/- {result['std_reward']:.2f}"
+            f"  Expert ({game}): "
+            f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
         )
 
-    all_results["Expert"] = expert_per_task_results
+    all_results["Expert"] = expert_results
 
-    # ── 2. Evaluate consolidated models on ALL tasks ──
-    methods = ["ewc", "distillation", "htcl"]
-    method_names = {"ewc": "EWC", "distillation": "Distillation", "htcl": "HTCL"}
+    # ── 2. Evaluate consolidated models on ALL tasks ────────────────────────
+    methods = ["distillation", "htcl"]
+    display_names = {"distillation": "Distillation", "htcl": "HTCL"}
 
     for method in methods:
-        ckpt_path = os.path.join(
-            checkpoint_dir, args.tag, f"consolidated_{method}.pt"
+        ckpt = os.path.join(
+            checkpoint_dir, args.tag, f"consolidated_{method}.pt",
         )
-        if not os.path.exists(ckpt_path):
+        if not os.path.exists(ckpt):
             print(f"\nWARNING: Consolidated model not found for {method}, skipping.")
             continue
 
-        print(f"\n{'='*60}")
-        print(f"Evaluating {method_names[method]} Consolidated Model")
-        print(f"{'='*60}")
+        display = display_names[method]
+        print(f"\n{'=' * 60}")
+        print(f"Evaluating {display} Consolidated Model")
+        print(f"{'=' * 60}")
 
-        model = load_model_checkpoint(ckpt_path, config, device)
+        model = load_model_checkpoint(ckpt, config, device)
         method_results = []
 
         for env_id in task_sequence:
-            game_name = env_id.replace("NoFrameskip-v4", "")
-            result = evaluate_on_task(model, env_id, config, device, union_actions, num_episodes)
+            game = env_id.replace("NoFrameskip-v4", "")
+            result = evaluate_on_task(
+                model, env_id, config, device, union_actions, num_episodes,
+            )
             method_results.append(result)
             print(
-                f"  {method_names[method]} on {game_name}: "
-                f"{result['mean_reward']:.2f} +/- {result['std_reward']:.2f}"
+                f"  {display} on {game}: "
+                f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
             )
 
-        all_results[method_names[method]] = method_results
+        all_results[display] = method_results
 
-    # ── 3. Generate plots ──
+    # ── 3. Generate all visualisations ──────────────────────────────────────
     if len(all_results) > 1:
-        print("\nGenerating comparison plots...")
-        plot_comparison_bar(all_results, figure_dir, "comparison_bar")
-        plot_forgetting_heatmap(all_results, figure_dir, "performance_heatmap")
+        print("\nGenerating comparison visualisations...")
+        plot_grouped_bar(all_results, figure_dir, "comparison_bar")
+        plot_performance_heatmap(all_results, figure_dir, "performance_heatmap")
+        plot_box_distributions(all_results, figure_dir, "reward_distributions")
+        plot_radar(all_results, figure_dir, "radar_chart")
+        plot_forgetting_gap(all_results, figure_dir, "forgetting_gap")
+        plot_relative_bar(all_results, figure_dir, "relative_performance")
+        plot_summary_table(all_results, figure_dir, "summary_table")
 
-    # ── 4. Save numerical results ──
+    # Fisher / Hessian diagnostics
+    fisher_path = os.path.join(checkpoint_dir, args.tag, "htcl_fisher_log.json")
+    print("\nGenerating Fisher / Hessian diagnostic plots...")
+    plot_fisher_diagnostics(fisher_path, figure_dir)
+
+    # ── 4. Save numerical results (JSON) ────────────────────────────────────
     results_path = os.path.join(figure_dir, f"comparison_results_{args.tag}.json")
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
 
-    # Convert for JSON serialization
     json_results = {}
-    for method, results_list in all_results.items():
+    for method, rlist in all_results.items():
         json_results[method] = [
-            {k: v for k, v in r.items() if k != "all_rewards"}
-            for r in results_list
+            {k: v for k, v in r.items() if k != "all_rewards"} for r in rlist
         ]
-
     with open(results_path, "w") as f:
         json.dump(json_results, f, indent=2)
     print(f"\nNumerical results saved to {results_path}")
 
-    # ── 5. Print summary table ──
+    # Full results with all_rewards for follow-up analysis
+    full_path = os.path.join(figure_dir, f"comparison_full_{args.tag}.json")
+    with open(full_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+
+    # ── 5. Print summary table ──────────────────────────────────────────────
     print("\n" + "=" * 80)
     print("COMPARISON SUMMARY")
     print("=" * 80)
+
     header = f"{'Method':<20}"
     for env_id in task_sequence:
-        game = env_id.replace("NoFrameskip-v4", "")
-        header += f"{'   ' + game:>15}"
+        g = env_id.replace("NoFrameskip-v4", "")
+        header += f"{'   ' + g:>15}"
     header += f"{'   Average':>15}"
     print(header)
     print("-" * 80)
 
-    for method, results_list in all_results.items():
+    for method, rlist in all_results.items():
         row = f"{method:<20}"
         rewards = []
-        for r in results_list:
+        for r in rlist:
             row += f"{r['mean_reward']:>15.2f}"
             rewards.append(r["mean_reward"])
         row += f"{np.mean(rewards):>15.2f}"
         print(row)
     print("=" * 80)
+
+    # Retention percentages
+    if "Expert" in all_results:
+        expert_means = [r["mean_reward"] for r in all_results["Expert"]]
+        print("\nRetention (% of Expert):")
+        for method, rlist in all_results.items():
+            if method == "Expert":
+                continue
+            m_means = [r["mean_reward"] for r in rlist]
+            pcts = [
+                mm / abs(em) * 100 if abs(em) > 1e-6 else 100.0
+                for em, mm in zip(expert_means, m_means)
+            ]
+            avg_pct = np.mean(pcts)
+            pct_str = "  ".join(f"{p:6.1f}%" for p in pcts)
+            print(f"  {method:<20} {pct_str}  (avg {avg_pct:.1f}%)")
+
+    # LaTeX table
+    print("\nLaTeX table:")
+    print("\\begin{tabular}{l" + "c" * len(task_sequence) + "c}")
+    print("\\toprule")
+    cols = " & ".join(
+        env_id.replace("NoFrameskip-v4", "") for env_id in task_sequence
+    )
+    print(f"Method & {cols} & Average \\\\")
+    print("\\midrule")
+    for method, rlist in all_results.items():
+        rewards = [r["mean_reward"] for r in rlist]
+        vals = " & ".join(f"{r:.1f}" for r in rewards)
+        print(f"{method} & {vals} & {np.mean(rewards):.1f} \\\\")
+    print("\\bottomrule")
+    print("\\end{tabular}")
 
 
 if __name__ == "__main__":

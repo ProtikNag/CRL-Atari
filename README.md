@@ -1,6 +1,6 @@
 # CRL-Atari: Continual Reinforcement Learning on Atari Games
 
-Continual Reinforcement Learning (CRL) framework that trains DQN expert agents on a sequence of Atari games and consolidates them into a single model using three knowledge consolidation methods: **EWC**, **Knowledge Distillation**, and **HTCL**.
+Continual Reinforcement Learning (CRL) framework that trains DQN expert agents on a sequence of Atari games and consolidates them into a single model using two knowledge consolidation methods: **Knowledge Distillation** and **HTCL**.
 
 ## Overview
 
@@ -14,7 +14,7 @@ Different Atari games are presented **sequentially** as distinct tasks. The goal
 |---|---|
 | Different action spaces across games | **Union action space** (6 actions for current task set). Only valid actions per game are used during selection and training. |
 | Q-value scale imbalance | **PopArt normalization** rescales output layer weights when target statistics change, preserving network predictions. |
-| Catastrophic forgetting | Three consolidation methods compared: EWC, Distillation, HTCL. |
+| Catastrophic forgetting | Two consolidation methods compared: Distillation, HTCL. |
 | Expert diversity | Each expert starts from **random initialization** and trains independently. |
 
 ### Task Sequence (Default)
@@ -38,7 +38,6 @@ CRL-Atari/
 │   │   ├── replay_buffer.py   # Circular replay buffer (uint8 storage)
 │   │   └── atari_wrappers.py  # DeepMind-style Atari preprocessing
 │   ├── consolidation/
-│   │   ├── ewc.py             # Elastic Weight Consolidation
 │   │   ├── distillation.py    # Knowledge Distillation (temperature-scaled)
 │   │   └── htcl.py            # Hierarchical Taylor-based Continual Learning
 │   ├── trainers/
@@ -50,14 +49,15 @@ CRL-Atari/
 │       └── normalization.py   # PopArt Q-value normalizer
 ├── scripts/
 │   ├── train_experts.py       # Train expert DQN per task (sequential)
-│   ├── consolidate.py         # Merge experts via EWC / Distillation / HTCL
+│   ├── consolidate.py         # Merge experts via Distillation / HTCL
 │   ├── evaluate.py            # Evaluate any model on any task
-│   ├── compare.py             # Side-by-side comparison + plots
+│   ├── compare.py             # Comprehensive comparison + plots
 │   ├── visualize.py           # Additional visualization utilities
 │   ├── generate_report.py     # Generate HTML technical report
 │   └── play.py                # Watch a trained agent play (pygame GUI)
 ├── main.py                    # Debug-friendly entry point (runs locally)
-├── run_all.sh                 # Full experiment pipeline (SLURM-compatible)
+├── run_consolidate.sh         # Consolidation + evaluation pipeline
+├── run_train_experts.sh       # Expert training pipeline (SLURM-compatible)
 ├── requirements.txt
 ├── results/
 │   ├── logs/                  # TensorBoard + CSV logs
@@ -82,22 +82,32 @@ pip install -r requirements.txt
 pip install gymnasium[accept-rom-license]
 ```
 
-### 2. Run Full Pipeline
+### 2. Train Experts
 
 ```bash
-# Full experiment (trains experts, consolidates, evaluates, plots)
-./run_all.sh
+# Train experts on Hyperion (SLURM)
+sbatch run_train_experts.sh --tag full_run_v1
 
-# Debug mode (fast, ~10K steps per expert)
-./run_all.sh --debug
-
-# Custom tag and device
-./run_all.sh --tag experiment_v1 --device cuda
+# Or locally in debug mode
+python scripts/train_experts.py --debug --tag debug
 ```
 
-The pipeline trains each expert for **3M environment steps** (12M frames with frame-skip=4, configurable in `configs/base.yaml`). Reward curves are automatically generated during training and saved to `results/figures/`.
+Training runs for **3M environment steps** per expert (configurable in `configs/base.yaml`).
 
-### 3. Debug Locally (No Shell Script)
+### 3. Consolidate and Evaluate
+
+```bash
+# Full consolidation + evaluation + comparison plots
+./run_consolidate.sh --tag full_run_v1
+
+# Debug mode (fast)
+./run_consolidate.sh --debug --tag debug
+
+# Skip consolidation, only re-evaluate and re-plot
+./run_consolidate.sh --skip-consolidate --tag full_run_v1
+```
+
+### 4. Debug Locally (No Shell Script)
 
 ```bash
 # Run everything in debug mode from Python directly
@@ -116,15 +126,11 @@ python main.py --step compare
 python main.py --no-debug --tag full_run
 ```
 
-### 4. Run Individual Scripts
+### 5. Run Individual Scripts
 
 ```bash
-# Train experts
-python scripts/train_experts.py --debug --tag myexp
-
 # Consolidate with a specific method
 python scripts/consolidate.py --method htcl --debug --tag myexp
-python scripts/consolidate.py --method ewc --debug --tag myexp
 python scripts/consolidate.py --method distillation --debug --tag myexp
 
 # Evaluate a checkpoint on all tasks
@@ -134,7 +140,7 @@ python scripts/evaluate.py --model-path results/checkpoints/myexp/consolidated_h
 python scripts/compare.py --debug --tag myexp
 ```
 
-### 5. Watch an Agent Play
+### 6. Watch an Agent Play
 
 ```bash
 # Watch the best Pong expert play
@@ -160,29 +166,20 @@ Generated figures:
 - `expert_{Game}_reward_curve.{png,svg}` — per-game curve with raw + smoothed rewards and best-point marker
 - `expert_all_reward_curves.{png,svg}` — combined side-by-side panel for all games
 
-Training also resumes from the best checkpoint if one exists, so re-running `run_all.sh` continues from where you left off.
+Training also resumes from the best checkpoint if one exists, so re-running the pipeline continues where you left off.
 
 ## Consolidation Methods
 
-### 1. EWC (Elastic Weight Consolidation)
-
-Computes a diagonal Fisher Information Matrix per task to identify important parameters. During consolidation, deviations from each expert's optimal parameters are penalized proportionally to Fisher importance.
-
-**Key hyperparameters** (in `configs/base.yaml`):
-- `lambda_ewc`: Penalty strength (default: 5000)
-- `fisher_samples`: Samples for Fisher computation (default: 2000)
-- `online`: Whether to use online EWC with decaying Fisher (default: true)
-
-### 2. Knowledge Distillation
+### 1. Knowledge Distillation
 
 Trains a student (global) model to match the soft Q-value distributions of all teachers (experts) using temperature-scaled softmax. Q-values are normalized per-task before distillation.
 
-**Key hyperparameters**:
+**Key hyperparameters** (in `configs/base.yaml`):
 - `temperature`: Softmax temperature (default: 2.0)
 - `alpha`: Distillation vs task loss weight (default: 0.5)
 - `distill_epochs`: Training epochs (default: 50)
 
-### 3. HTCL (Hierarchical Taylor-based Continual Learning)
+### 2. HTCL (Hierarchical Taylor-based Continual Learning)
 
 From [Nag, Raghavan, Narayanan 2026]. Uses a second-order Taylor expansion around the global model to find an optimal parameter update that balances:
 - **Stability**: staying in low-curvature regions of the past-task loss landscape
@@ -190,13 +187,32 @@ From [Nag, Raghavan, Narayanan 2026]. Uses a second-order Taylor expansion aroun
 
 $$\mathbf{w}^{(t)} = \mathbf{w}^{(t-1)} + (\mathbf{H} + \lambda \mathbf{I})^{-1} [\lambda \Delta\mathbf{d} - \mathbf{g}]$$
 
-**Lambda constraint**: $\lambda > -\mu_{\min}(\mathbf{H})$ ensures the surrogate objective is strictly convex. With `lambda_auto: true`, this is enforced automatically.
+**Lambda constraint**: $\lambda > -\mu_{\min}(\mathbf{H})$ ensures the surrogate objective is strictly convex. With `lambda_htcl: 200_000` a very high lambda dominates the Hessian, effectively making the update a trust-region step toward the expert.
+
+The diagonal Fisher Information Matrix is used as the Hessian approximation. Full Fisher statistics are logged per task (to TensorBoard and a JSON file) for offline analysis and plotting.
 
 **Key hyperparameters**:
-- `lambda_htcl`: Base lambda value (default: 100000)
-- `lambda_auto`: Auto-adjust to satisfy constraint (default: true)
+- `lambda_htcl`: Lambda value (default: 200000)
+- `lambda_auto`: Auto-adjust to satisfy constraint (default: false)
 - `catch_up_iterations`: Refinement iterations after each merge (default: 10)
 - `diagonal_fisher`: Use diagonal Fisher for Hessian approximation (default: true)
+
+## Comparison Visualisations
+
+Running `scripts/compare.py` generates the following plots (PNG + SVG):
+
+| Plot | File | Description |
+|---|---|---|
+| Grouped bar chart | `comparison_bar` | Mean reward per game per method (with error bars) |
+| Performance heatmap | `performance_heatmap` | Raw rewards and % of expert performance |
+| Box plots | `reward_distributions` | Per-episode reward distributions per game |
+| Radar chart | `radar_chart` | Normalised multi-game profile (100% = expert) |
+| Forgetting gap | `forgetting_gap` | Reward gap (expert − consolidated) per game |
+| Relative performance | `relative_performance` | % of expert reward per game |
+| Summary table | `summary_table` | Publication-ready statistics table |
+| Fisher global stats | `fisher_global_stats` | Cumulative Fisher mean/max/nonzero vs task |
+| Fisher layer heatmap | `fisher_layer_heatmap` | Per-layer mean Fisher (log scale, cumulative) |
+| Fisher per-task stats | `fisher_per_task_stats` | Per-task (non-cumulative) Fisher statistics |
 
 ## Configuration
 
@@ -215,7 +231,7 @@ All hyperparameters live in [`configs/base.yaml`](configs/base.yaml). The config
 | `training` | Expert training: LR, buffer, exploration, etc. |
 | `normalization` | PopArt Q-value normalization settings |
 | `consolidation` | Shared consolidation settings |
-| `ewc`, `distillation`, `htcl` | Method-specific hyperparameters |
+| `distillation`, `htcl` | Method-specific hyperparameters |
 | `evaluation` | Eval episodes, deterministic flag |
 | `logging` | Log/checkpoint/figure directories, TensorBoard |
 | `debug` | Reduced values for fast local testing |
@@ -245,34 +261,31 @@ After a full run, you'll find:
 | Path | Content |
 |---|---|
 | `results/checkpoints/<tag>/expert_*_best.pt` | Best expert per game |
-| `results/checkpoints/<tag>/consolidated_ewc.pt` | EWC-merged model |
 | `results/checkpoints/<tag>/consolidated_distillation.pt` | Distillation-merged model |
 | `results/checkpoints/<tag>/consolidated_htcl.pt` | HTCL-merged model |
-| `results/figures/png/expert_*_reward_curve.png` | Per-game training reward curves |
-| `results/figures/png/expert_all_reward_curves.png` | Combined multi-panel reward curves |
-| `results/figures/png/comparison_bar.png` | Bar chart: expert vs. consolidated |
-| `results/figures/png/performance_heatmap.png` | Heatmap: method × game |
-| `results/figures/comparison_results_<tag>.json` | Raw numerical results |
+| `results/checkpoints/<tag>/htcl_fisher_log.json` | Fisher / Hessian diagnostics |
+| `results/figures/png/` | All comparison plots (PNG) |
+| `results/figures/svg/` | All comparison plots (SVG) |
+| `results/figures/comparison_results_<tag>.json` | Numerical results summary |
+| `results/figures/comparison_full_<tag>.json` | Full results with per-episode rewards |
 | `results/logs/` | TensorBoard events + CSV metrics |
 
 ## Shell Script Options
 
 ```
-./run_all.sh [OPTIONS]
+./run_consolidate.sh [OPTIONS]
 
 Options:
-  --debug              Debug mode (fast training, ~10K steps)
+  --debug              Debug mode (fast, uses reduced settings)
   --tag TAG            Experiment tag (default: 'default')
   --device DEVICE      Force device: cpu, cuda, mps
   --config PATH        Config file (default: configs/base.yaml)
-  --skip-train         Skip expert training (use existing checkpoints)
-  --skip-consolidate   Skip consolidation (only evaluate)
+  --skip-consolidate   Skip consolidation (only evaluate & plot)
   --eval-episodes N    Override evaluation episode count
 ```
 
 ## References
 
-- Kirkpatrick et al., "Overcoming catastrophic forgetting in neural networks", PNAS 2017 (EWC)
 - Hinton et al., "Distilling the knowledge in a neural network", 2015 (Knowledge Distillation)
 - Nag, Raghavan, Narayanan, "Mitigating Task-Order Sensitivity and Forgetting via Hierarchical Second-Order Consolidation", 2026 (HTCL)
 - Mnih et al., "Human-level control through deep reinforcement learning", Nature 2015 (DQN)
