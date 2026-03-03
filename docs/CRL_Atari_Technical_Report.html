@@ -366,7 +366,7 @@
     <p>The pipeline follows a <em>train experts, then consolidate</em> paradigm:</p>
     <ol>
         <li><strong>Expert Training</strong> &mdash; Train separate DQN agents, one per Atari game
-            (Pong, Breakout, SpaceInvaders). All experts share a union action space
+            (Breakout, SpaceInvaders, Pong). All experts share a union action space
             (the union of each game&rsquo;s minimal actions, computed at runtime), with per-game action masking.</li>
         <li><strong>Consolidation</strong> &mdash; Merge the expert models into a single global
             model using one of three methods:
@@ -418,9 +418,9 @@
 
         <!-- Row 2: Expert Training -->
         <div class="flow-row">
-            <div class="flow-box bg-orange">Expert 1: Pong<small>DQN Training</small></div>
-            <div class="flow-box bg-orange">Expert 2: Breakout<small>DQN Training</small></div>
-            <div class="flow-box bg-orange">Expert 3: SpaceInvaders<small>DQN Training</small></div>
+            <div class="flow-box bg-orange">Expert 1: Breakout<small>DQN Training</small></div>
+            <div class="flow-box bg-orange">Expert 2: SpaceInvaders<small>DQN Training</small></div>
+            <div class="flow-box bg-orange">Expert 3: Pong<small>DQN Training</small></div>
         </div>
 
         <div class="flow-arrow">&darr;</div>
@@ -887,13 +887,45 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     </div>
 
     <h3>Sequential Task Consolidation</h3>
-    <p>Tasks are merged one at a time into the global model:</p>
+    <p>Tasks are merged one at a time into the global model. The default task order places
+    Pong last so it receives a corrective Taylor update:</p>
     <ol>
-        <li>Merge task 1 (Pong) into global &rarr; updated global</li>
-        <li>Merge task 2 (Breakout) into updated global &rarr; updated global</li>
-        <li>Merge task 3 (SpaceInvaders) &rarr; final global</li>
+        <li>Initialize global from task 1 (Breakout) &mdash; register Fisher</li>
+        <li>Merge task 2 (SpaceInvaders) into global &rarr; updated global</li>
+        <li>Merge task 3 (Pong) into updated global &rarr; final global</li>
     </ol>
-    <p>After each merge, <strong>catch-up iterations</strong> refine the result (see next section).</p>
+
+    <h3>Action-Masked Taylor Update</h3>
+    <p>When the current expert uses fewer actions than the union space (e.g., Breakout uses
+    4 of 6 actions), the expert drift &delta;<sub>d</sub> for <strong>head-layer rows</strong>
+    corresponding to unused actions is zeroed out:</p>
+    <div class="equation">
+        &delta;<sub>d,i</sub> = 0&emsp;for action rows <em>i</em> &notin; valid_actions(expert)
+    </div>
+    <p>This prevents untrained Q-head weights (e.g., Breakout&rsquo;s RIGHTFIRE/LEFTFIRE rows,
+    which contain random/untrained values) from corrupting the global model&rsquo;s ability
+    to distinguish those actions for games that do use them (Pong, SpaceInvaders).</p>
+
+    <h3>Multi-Pass Consolidation</h3>
+    <p>Rather than a single sequential pass, the task sequence is iterated
+    <code>num_passes</code> times (default: 3). Each pass uses a geometrically decaying
+    step size to prevent oscillation between expert optima:</p>
+    <div class="equation">
+        &eta;<sub>pass</sub> = &eta; &times; 0.3<sup>pass_idx</sup>
+        &emsp;&emsp;(&eta;<sub>0</sub> = 0.9, &eta;<sub>1</sub> = 0.27, &eta;<sub>2</sub> = 0.081)
+    </div>
+    <p>At the start of each new pass (pass &gt; 0), the cumulative Fisher and gradient
+    are reset to zeros for a fresh Hessian estimate at the current model position.
+    All tasks (including task-0) receive Taylor updates on passes &gt; 0.</p>
+
+    <h3>Joint Refinement</h3>
+    <p>After multi-pass, a final refinement step:</p>
+    <ol>
+        <li>Computes Fisher and gradient jointly over <strong>all</strong> tasks at the final position</li>
+        <li>Computes per-task Taylor corrections toward each expert under the joint Fisher</li>
+        <li>Averages the correction vectors across all tasks</li>
+        <li>Applies the averaged correction with a reduced step size (&eta; &times; 0.1)</li>
+    </ol>
 
     <div class="callout info">
         <strong>Compared to EWC:</strong> EWC uses an L2 penalty weighted by Fisher. HTCL uses the
@@ -907,7 +939,7 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
      12. LAMBDA CONSTRAINT + CATCH-UP
      ═══════════════════════════════════════════════════════════ -->
 <section id="sec-lambda">
-    <h2>12. Lambda Constraint and Catch-Up Iterations</h2>
+    <h2>12. Lambda Constraint and Per-Lambda Grid</h2>
 
     <h3>Lambda Constraint</h3>
     <p>The Taylor update requires (H + &lambda; I) to be positive definite:</p>
@@ -917,7 +949,7 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     <p>where &mu;<sub>min</sub>(H) is the minimum eigenvalue of the diagonal Hessian approximation.
     For a diagonal matrix, this equals the minimum diagonal entry: &mu;<sub>min</sub> = min<sub>i</sub>(F<sub>i</sub>).
     Since Fisher values are always &ge; 0, we need &lambda; > 0 (trivially satisfied for
-    default &lambda; = 1.0).</p>
+    all default candidates).</p>
 
     <h4>Auto-Adjustment (<code>lambda_auto=true</code>)</h4>
     <div class="equation">
@@ -926,30 +958,35 @@ Q_student = global_model(states)     # shape: (batch, 6)</code></pre>
     <p>with margin = 0.1 (safety buffer). This guarantees (H + &lambda;I) is positive definite
     regardless of Fisher values.</p>
 
-    <h3>Catch-Up Iterations</h3>
-    <p>After the initial Taylor update for task <em>t</em>, we perform <code>catch_up_iterations=10</code>
-    refinement steps:</p>
-    <ol>
-        <li>Recompute the gradient <strong>g</strong> at the <em>new</em> global position
-            (the cumulative Fisher stays the same)</li>
-        <li>Apply the Taylor update again with the new gradient</li>
-    </ol>
-    <p>This is a form of fixed-point iteration: the initial update uses the gradient at the
-    old position; catch-up iterations &ldquo;catch up&rdquo; to the gradient at the new position.
-    Converges quickly because the Fisher (curvature) changes slowly.</p>
+    <h3>Per-Lambda Consolidation</h3>
+    <p>Rather than selecting a single &lambda; via grid search, the consolidation pipeline runs
+    independently for each &lambda; candidate [0.1, 1.0, 10.0, 100.0, 1000.0]. Each candidate
+    gets a fresh global model initialized from the first expert, producing separate
+    consolidated checkpoints (<code>consolidated_htcl_lam*.pt</code>). The evaluation and
+    comparison scripts discover all per-lambda checkpoints automatically and report results
+    for each.</p>
 
-<pre><code>for task_t in tasks:
-    w_global = taylor_update(w_global, w_expert_t, g, F_cum)
-    for k in range(catch_up_iters):
-        g_new = compute_gradient(w_global)     # gradient at new position
-        w_global = taylor_update(w_global, w_expert_t, g_new, F_cum)
-    F_cum += F_task_t
-    g_cum += g_new</code></pre>
+<pre><code>for lam in lambda_candidates:
+    model = init_from_first_expert()
+    for pass_idx in range(num_passes):
+        eta_pass = eta * (0.3 ** pass_idx)
+        for task in tasks:
+            F_task = compute_fisher(model, task)
+            g_task = compute_gradient(model, task)
+            F_cum += F_task; g_cum += g_task
+            model = taylor_update(model, expert_t, g_cum, F_cum,
+                                  lam, eta_pass, valid_actions=task.actions)
+    if joint_refinement:
+        F_all, g_all = joint_fisher_gradient(model, all_tasks)
+        corrections = [taylor_correction(expert_t, F_all, g_all, lam)
+                       for expert_t in experts]
+        model += mean(corrections) * (eta * 0.1)
+    save(model, f"consolidated_htcl_lam{lam}.pt")</code></pre>
 
     <div class="callout success">
-        <strong>Effect:</strong> Without catch-up, we get a single Newton-like step that may overshoot.
-        With 10 catch-up iterations, we achieve significantly better convergence in practice,
-        as the gradient is re-evaluated at the updated position.
+        <strong>Effect:</strong> Multi-pass with decaying &eta; avoids oscillation between experts.
+        Action masking prevents Q-head corruption from experts with partial action spaces.
+        Joint refinement provides a final balanced correction toward all experts simultaneously.
     </div>
 </section>
 

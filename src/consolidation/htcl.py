@@ -8,7 +8,10 @@ Consolidation" (Nag, Raghavan, Narayanan, 2026).
 Key properties:
   - Global model initialized from the first expert (not averaged)
   - Diagonal Fisher approximation of the Hessian on high-confidence states
-  - Lambda provided externally (one consolidation per lambda candidate)  - Multi-pass: iterates over all tasks N times so cumulative Fisher
+  - Lambda provided externally (one consolidation per lambda candidate)
+  - Action-masked Taylor update: zeroes out head-layer drift for actions
+    the current expert was never trained on, preventing Q-head corruption
+  - Multi-pass: iterates over all tasks N times so cumulative Fisher
     protects earlier tasks from later updates
   - Joint refinement: final Taylor update using Fisher/gradient computed
     jointly over all tasks simultaneously"""
@@ -404,10 +407,17 @@ class HTCLConsolidator:
         gradient: Dict[str, torch.Tensor],
         lambda_val: float,
         eta_override: Optional[float] = None,
+        valid_actions: Optional[List[int]] = None,
+        total_actions: int = 6,
     ) -> Dict[str, torch.Tensor]:
         """Compute the HTCL closed-form parameter update.
 
         w_new = w_global + eta * (H + lambda*I)^{-1} * [lambda * delta_d - g]
+
+        When ``valid_actions`` is provided, the expert drift (delta_d) for
+        head-layer rows corresponding to actions the expert was never trained
+        on is zeroed out.  This prevents untrained Q-head weights (e.g.,
+        Breakout's RIGHTFIRE/LEFTFIRE rows) from corrupting the global model.
 
         Args:
             global_state_dict: Current global model parameters.
@@ -416,11 +426,40 @@ class HTCLConsolidator:
             gradient: Gradient of past loss at global params.
             lambda_val: Validated lambda value.
             eta_override: If given, overrides self.eta (used for catch-up).
+            valid_actions: Valid action indices for the current expert.
+                If provided and fewer than total_actions, the head-layer
+                delta_d is masked for unused actions.
+            total_actions: Size of the union action space (default: 6).
 
         Returns:
             Updated state dict.
         """
         eta = eta_override if eta_override is not None else self.eta
+
+        # Precompute the set of unused action indices for head masking
+        unused_actions: Optional[List[int]] = None
+        if valid_actions is not None and len(valid_actions) < total_actions:
+            all_actions = set(range(total_actions))
+            unused_actions = sorted(all_actions - set(valid_actions))
+
+        # Identify head-layer parameter names.
+        # For standard DQN: fc.2.weight (shape [n_actions, hidden])
+        #                    fc.2.bias   (shape [n_actions])
+        # For Dueling DQN:  advantage_stream.2.weight / .bias
+        head_weight_names = {
+            n for n in global_state_dict
+            if n.endswith(".weight")
+            and global_state_dict[n].shape[0] == total_actions
+            and ("fc." in n or "advantage_stream." in n)
+        }
+        head_bias_names = {
+            n for n in global_state_dict
+            if n.endswith(".bias")
+            and global_state_dict[n].shape[0] == total_actions
+            and ("fc." in n or "advantage_stream." in n)
+        }
+        head_names = head_weight_names | head_bias_names
+
         updated = {}
         for name in global_state_dict:
             if name in fisher:
@@ -430,6 +469,24 @@ class HTCLConsolidator:
                 g = gradient[name].to(self.device)
 
                 delta_d = w_local - w_global
+
+                # ── Action masking for head layers ──
+                # Zero out drift for action rows the expert never trained on.
+                # This prevents random/untrained Q-head weights from pulling
+                # the consolidated model away from previously learned actions.
+                if unused_actions and name in head_names:
+                    if name in head_weight_names:
+                        # weight shape: [n_actions, hidden]
+                        delta_d[unused_actions, :] = 0.0
+                    else:
+                        # bias shape: [n_actions]
+                        delta_d[unused_actions] = 0.0
+                    if self.logger:
+                        self.logger.info(
+                            f"  Action mask: zeroed delta_d for {name} "
+                            f"rows {unused_actions}"
+                        )
+
                 numerator = lambda_val * delta_d - g
                 denominator = h_diag + lambda_val
                 update = numerator / (denominator + 1e-8)
@@ -862,11 +919,15 @@ class HTCLConsolidator:
                     )
 
                 # ── Main Taylor update (with pass-decayed eta) ──
+                # Pass valid_actions so the head layer drift is masked
+                # for actions this expert was never trained on.
                 updated_sd = self._taylor_update(
                     global_sd, local_sd,
                     self.cumulative_fisher, self.cumulative_gradient,
                     eff_lam,
                     eta_override=pass_eta,
+                    valid_actions=valid_actions,
+                    total_actions=consolidated.unified_action_dim,
                 )
 
                 # Log drift and update norms
@@ -960,6 +1021,7 @@ class HTCLConsolidator:
 
             # Per-task Taylor corrections: compute the update direction
             # toward each expert under the joint Fisher, then average.
+            # Action masking is applied per-expert for head layers.
             avg_correction = {
                 name: torch.zeros_like(param)
                 for name, param in consolidated.named_parameters()
@@ -967,9 +1029,30 @@ class HTCLConsolidator:
             }
             num_tasks = len(expert_results)
 
+            # Identify head-layer names for action masking
+            n_actions = consolidated.unified_action_dim
+            head_weight_names = {
+                n for n in global_sd
+                if n.endswith(".weight")
+                and global_sd[n].shape[0] == n_actions
+                and ("fc." in n or "advantage_stream." in n)
+            }
+            head_bias_names = {
+                n for n in global_sd
+                if n.endswith(".bias")
+                and global_sd[n].shape[0] == n_actions
+                and ("fc." in n or "advantage_stream." in n)
+            }
+            head_names = head_weight_names | head_bias_names
+
             for result in expert_results:
                 local_sd = result["policy_state_dict"]
                 game_name = result["game_name"]
+                task_valid = result["valid_actions"]
+                unused = (
+                    sorted(set(range(n_actions)) - set(task_valid))
+                    if len(task_valid) < n_actions else []
+                )
 
                 for name in joint_fisher:
                     w_global = global_sd[name].to(self.device)
@@ -978,6 +1061,14 @@ class HTCLConsolidator:
                     g = joint_gradient[name]
 
                     delta_d = w_local - w_global
+
+                    # Action mask: zero drift for untrained action rows
+                    if unused and name in head_names:
+                        if name in head_weight_names:
+                            delta_d[unused, :] = 0.0
+                        else:
+                            delta_d[unused] = 0.0
+
                     numerator = eff_lam * delta_d - g
                     denominator = h_diag + eff_lam
                     correction = numerator / (denominator + 1e-8)

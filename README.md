@@ -19,9 +19,14 @@ Different Atari games are presented **sequentially** as distinct tasks. The goal
 
 ### Task Sequence (Default)
 
-1. **Pong** (6 actions)
-2. **Breakout** (4 actions)
-3. **SpaceInvaders** (6 actions)
+1. **Breakout** (4 actions)
+2. **SpaceInvaders** (6 actions)
+3. **Pong** (6 actions)
+
+> **Why this order?** HTCL initializes the global model from the first expert
+> and only registers Fisher protection for it (no Taylor update toward it) on
+> pass 0.  Placing Pong last ensures it receives a corrective Taylor update
+> rather than being silently overwritten by later tasks.
 
 ## Project Structure
 
@@ -187,14 +192,17 @@ From [Nag, Raghavan, Narayanan 2026]. Uses a second-order Taylor expansion aroun
 
 $$\mathbf{w}^{(t)} = \mathbf{w}^{(t-1)} + (\mathbf{H} + \lambda \mathbf{I})^{-1} [\lambda \Delta\mathbf{d} - \mathbf{g}]$$
 
-**Lambda constraint**: $\lambda > -\mu_{\min}(\mathbf{H})$ ensures the surrogate objective is strictly convex. With `lambda_htcl: 200_000` a very high lambda dominates the Hessian, effectively making the update a trust-region step toward the expert.
+**Action-masked Taylor update**: When the current expert uses fewer actions than the union space (e.g., Breakout uses 4 of 6), the expert drift $\Delta\mathbf{d}$ for head-layer rows corresponding to unused actions is zeroed out. This prevents untrained Q-head weights from corrupting the consolidated model.
 
-The diagonal Fisher Information Matrix is used as the Hessian approximation. Full Fisher statistics are logged per task (to TensorBoard and a JSON file) for offline analysis and plotting.
+**Multi-pass consolidation**: The task sequence is iterated `num_passes` times with geometrically decaying step size ($\eta \times 0.3^{\text{pass}}$), allowing the cumulative Fisher to protect earlier tasks.
+
+**Joint refinement**: After multi-pass, Fisher and gradient are computed jointly over all tasks and a final averaged Taylor correction is applied with a reduced step size.
 
 **Key hyperparameters**:
-- `lambda_htcl`: Lambda value (default: 200000)
-- `lambda_auto`: Auto-adjust to satisfy constraint (default: false)
-- `catch_up_iterations`: Refinement iterations after each merge (default: 10)
+- `lambda_candidates`: Per-lambda grid (default: `[0.1, 1.0, 10.0, 100.0, 1000.0]`)
+- `eta`: Taylor update step size (default: 0.9)
+- `num_passes`: Multi-pass iterations (default: 3)
+- `joint_refinement`: Enable joint refinement step (default: true)
 - `diagonal_fisher`: Use diagonal Fisher for Hessian approximation (default: true)
 
 ## Comparison Visualisations
@@ -209,10 +217,9 @@ Running `scripts/compare.py` generates the following plots (PNG + SVG):
 | Radar chart | `radar_chart` | Normalised multi-game profile (100% = expert) |
 | Forgetting gap | `forgetting_gap` | Reward gap (expert − consolidated) per game |
 | Relative performance | `relative_performance` | % of expert reward per game |
-| Summary table | `summary_table` | Publication-ready statistics table |
-| Fisher global stats | `fisher_global_stats` | Cumulative Fisher mean/max/nonzero vs task |
-| Fisher layer heatmap | `fisher_layer_heatmap` | Per-layer mean Fisher (log scale, cumulative) |
-| Fisher per-task stats | `fisher_per_task_stats` | Per-task (non-cumulative) Fisher statistics |
+| Summary table | `summary_table` | Publication-ready statistics table (Avg % Expert) |
+| Lambda selection | `lambda_selection_curve` | Per-lambda KL divergence to experts |
+| Lambda KL per task | `lambda_kl_lam*` | Per-task KL breakdown for each lambda |
 
 ## Configuration
 
@@ -262,7 +269,7 @@ After a full run, you'll find:
 |---|---|
 | `results/checkpoints/<tag>/expert_*_best.pt` | Best expert per game |
 | `results/checkpoints/<tag>/consolidated_distillation.pt` | Distillation-merged model |
-| `results/checkpoints/<tag>/consolidated_htcl.pt` | HTCL-merged model |
+| `results/checkpoints/<tag>/consolidated_htcl_lam*.pt` | HTCL-merged models (one per lambda) |
 | `results/checkpoints/<tag>/htcl_fisher_log.json` | Fisher / Hessian diagnostics |
 | `results/figures/png/` | All comparison plots (PNG) |
 | `results/figures/svg/` | All comparison plots (SVG) |

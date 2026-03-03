@@ -9,10 +9,14 @@ seed: 42
 # Union action space is computed at runtime from the minimal action sets
 # of all games below. For {Pong, Breakout, SpaceInvaders} the union is
 # [NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE] = 6 actions.
+# Task ordering matters for HTCL: task-0 is used to initialize the global
+# model and only receives Fisher protection (no Taylor update toward it)
+# on pass 0.  Placing Pong last ensures it gets a corrective Taylor update
+# rather than being silently overwritten by later tasks.
 task_sequence:
-  - PongNoFrameskip-v4
   - BreakoutNoFrameskip-v4
   - SpaceInvadersNoFrameskip-v4
+  - PongNoFrameskip-v4
 
 # --- DQN Model ---
 model:
