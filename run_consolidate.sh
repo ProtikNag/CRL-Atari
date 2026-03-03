@@ -16,9 +16,9 @@
 # comprehensive evaluation plots and visualisations.
 #
 # Steps:
-#   1. Consolidate experts  (Distillation + HTCL)
-#   2. Evaluate all models on all tasks
-#   3. Generate comparison plots & Fisher diagnostics
+#   1. Consolidate experts  (Distillation + HTCL per-lambda)
+#   2. Evaluate all models on all tasks (experts + all consolidated variants)
+#   3. Generate comparison plots
 #
 # Pre-requisite: expert checkpoints must exist under
 #   results/checkpoints/<TAG>/expert_*_best.pt
@@ -177,6 +177,19 @@ for METHOD in distillation htcl; do
                 --model-path "${CKPT}" --all-tasks \
                 --config ${CONFIG} ${DEBUG} ${DEVICE} ${EVAL_EPISODES} \
                 --output "results/figures/eval_${METHOD}_${TAG}.json"
+    fi
+done
+
+# HTCL per-lambda checkpoints (consolidated_htcl_lam*.pt)
+for HTCL_CKPT in ${CKPT_DIR}/consolidated_htcl_lam*.pt; do
+    if [ -f "${HTCL_CKPT}" ]; then
+        LAM_TAG=$(basename "${HTCL_CKPT}" .pt | sed 's/consolidated_htcl_//')
+        log_msg "Evaluating HTCL ${LAM_TAG}"
+        run_step "02_eval_htcl_${LAM_TAG}" \
+            python scripts/evaluate.py \
+                --model-path "${HTCL_CKPT}" --all-tasks \
+                --config ${CONFIG} ${DEBUG} ${DEVICE} ${EVAL_EPISODES} \
+                --output "results/figures/eval_htcl_${LAM_TAG}_${TAG}.json"
     fi
 done
 
