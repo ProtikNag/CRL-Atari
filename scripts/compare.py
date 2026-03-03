@@ -137,7 +137,6 @@ def plot_grouped_bar(
         ax.bar(
             x + offset, means, bw, yerr=stds, label=method,
             color=_method_color(i), edgecolor=EDGE_COLOR, linewidth=1.2,
-            hatch=HATCHES[i % len(HATCHES)],
             capsize=4, error_kw={"linewidth": 1.0, "capthick": 1.0},
         )
 
@@ -325,7 +324,6 @@ def plot_forgetting_gap(
             y + offset, gaps, bh, label=method,
             color=_method_color(midx + 1),
             edgecolor=EDGE_COLOR, linewidth=1.0,
-            hatch=HATCHES[(midx + 1) % len(HATCHES)],
         )
 
     ax.set_yticks(y)
@@ -368,7 +366,6 @@ def plot_relative_bar(
             x + offset, pcts, bw, label=method,
             color=_method_color(midx + 1),
             edgecolor=EDGE_COLOR, linewidth=1.2,
-            hatch=HATCHES[(midx + 1) % len(HATCHES)],
         )
         for xi, pct in zip(x + offset, pcts):
             ax.text(xi, pct + 1, f"{pct:.0f}%", ha="center", va="bottom", fontsize=8)
@@ -392,18 +389,22 @@ def plot_summary_table(
     """Render a publication-ready summary table of mean rewards as a figure.
 
     Rows correspond to methods (Expert, Distillation, HTCL per-lambda, etc.)
-    and columns to games plus an Average column.  The best HTCL lambda row
-    (by average reward) is highlighted in green.
+    and columns to per-game rewards plus an Avg % of Expert column.
+    The best HTCL lambda row (by avg % retention) is highlighted in green.
     """
     methods = list(results.keys())
     games = [r["game_name"] for r in results[methods[0]]]
 
-    col_labels = games + ["Average"]
+    # Compute expert baselines for % calculation
+    expert_means = None
+    if "Expert" in results:
+        expert_means = np.array([r["mean_reward"] for r in results["Expert"]])
+
+    col_labels = games + ["Avg % Expert"]
     cell_text = []
     row_labels = []
 
-    # Track best HTCL lambda by average reward
-    best_htcl_avg = -float("inf")
+    best_htcl_pct = -float("inf")
     best_htcl_key = None
 
     for method in methods:
@@ -412,13 +413,27 @@ def plot_summary_table(
         for r in results[method]:
             row.append(f"{r['mean_reward']:.1f} \u00b1 {r['std_reward']:.1f}")
             rewards.append(r["mean_reward"])
-        avg = np.mean(rewards)
-        row.append(f"{avg:.1f}")
+
+        # Compute average % of expert
+        if expert_means is not None and method != "Expert":
+            safe_expert = np.where(
+                np.abs(expert_means) > 1e-6, expert_means, 1.0,
+            )
+            pcts = np.array(rewards) / safe_expert * 100
+            avg_pct = np.mean(pcts)
+            row.append(f"{avg_pct:.1f}%")
+        elif method == "Expert":
+            avg_pct = 100.0
+            row.append("100.0%")
+        else:
+            avg_pct = np.mean(rewards)
+            row.append(f"{avg_pct:.1f}")
+
         cell_text.append(row)
         row_labels.append(method)
 
-        if "HTCL" in method and "\u03bb" in method and avg > best_htcl_avg:
-            best_htcl_avg = avg
+        if "HTCL" in method and "\u03bb" in method and avg_pct > best_htcl_pct:
+            best_htcl_pct = avg_pct
             best_htcl_key = method
 
     n_rows = len(row_labels)
@@ -444,10 +459,8 @@ def plot_summary_table(
 
     # Style data rows
     for i, method in enumerate(row_labels):
-        data_row = i + 1  # +1 for col header
-        # Average column highlight
+        data_row = i + 1
         table[data_row, -1].set_facecolor(PALETTE["pastel_yellow"])
-        # Best HTCL lambda row in green
         if method == best_htcl_key:
             for j in range(-1, len(col_labels)):
                 try:
@@ -455,7 +468,6 @@ def plot_summary_table(
                     table[data_row, j].set_edgecolor(EDGE_COLOR)
                 except KeyError:
                     pass
-        # Expert rows in light teal
         elif method.startswith("Expert"):
             for j in range(-1, len(col_labels)):
                 try:
@@ -464,133 +476,14 @@ def plot_summary_table(
                 except KeyError:
                     pass
 
-    ax.set_title("Reward Comparison (Mean \u00b1 Std)", fontsize=13, pad=20)
+    ax.set_title(
+        "Reward Comparison (Mean \u00b1 Std, Avg as % of Expert)",
+        fontsize=13, pad=20,
+    )
     _save_fig(fig, figure_dir, filename)
 
 
-# ── Plot 8: Fisher / Hessian diagnostics ─────────────────────────────────────
-
-def plot_fisher_diagnostics(fisher_log_path: str, figure_dir: str) -> None:
-    """Plot Fisher diagnostics from the saved HTCL JSON log.
-
-    Generates:
-      * fisher_global_stats — line plot of global Fisher statistics vs task
-      * fisher_layer_heatmap — heatmap of per-layer mean Fisher (cumulative)
-      * fisher_per_task_stats — per-task (non-cumulative) statistics
-    """
-    if not os.path.exists(fisher_log_path):
-        print(f"  Fisher log not found at {fisher_log_path}, skipping Fisher plots.")
-        return
-
-    with open(fisher_log_path, "r") as f:
-        fisher_log = json.load(f)
-
-    if not fisher_log:
-        return
-
-    cumulative = [e for e in fisher_log if e["kind"] == "cumulative"]
-    per_task   = [e for e in fisher_log if e["kind"] == "task"]
-
-    # ── 8a: Cumulative global stats ──
-    if cumulative:
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4), constrained_layout=True)
-        labels = [e["game_name"] for e in cumulative]
-        xs = list(range(1, len(cumulative) + 1))
-
-        for ax, stat, title, ylabel in zip(
-            axes,
-            ["mean", "max", "nonzero_frac"],
-            ["Mean Fisher (cumulative)", "Max Fisher (cumulative)",
-             "Non-zero Fraction"],
-            ["Mean Fisher Information", "Max Fisher Information",
-             "Fraction (0–1)"],
-        ):
-            vals = [e["global"][stat] for e in cumulative]
-            ax.plot(xs, vals, color=PALETTE["pastel_purple"],
-                    marker="o", markeredgecolor=EDGE_COLOR,
-                    markeredgewidth=0.8, markersize=8, linewidth=2.0)
-            ax.set_xticks(xs)
-            ax.set_xticklabels(labels, rotation=20, ha="right")
-            ax.set_title(title)
-            ax.set_xlabel("Task")
-            ax.set_ylabel(ylabel)
-            if stat != "nonzero_frac":
-                ax.ticklabel_format(style="scientific", axis="y", scilimits=(0, 0))
-
-        fig.suptitle(
-            "Cumulative Fisher (Hessian Diagonal) Diagnostics",
-            fontsize=14, y=1.02,
-        )
-        _save_fig(fig, figure_dir, "fisher_global_stats")
-
-    # ── 8b: Per-layer Fisher heatmap ──
-    if cumulative:
-        all_layers = list(cumulative[0]["per_layer"].keys())
-        short = [
-            n.replace("features.", "F.").replace("head.", "H.")
-            for n in all_layers
-        ]
-        labels = [e["game_name"] for e in cumulative]
-
-        mat = np.zeros((len(all_layers), len(cumulative)))
-        for tidx, entry in enumerate(cumulative):
-            for lidx, layer in enumerate(all_layers):
-                mat[lidx, tidx] = entry["per_layer"].get(
-                    layer, {},
-                ).get("mean", 0.0)
-
-        log_mat = np.log10(mat + 1e-12)
-        cmap = LinearSegmentedColormap.from_list(
-            "fisher_heat",
-            ["#FFFFFF", "#A8D8EA", "#C3B1E1", "#F4B6C2"],
-            N=256,
-        )
-        fig, ax = plt.subplots(
-            figsize=(
-                max(6, len(labels) * 2),
-                max(5, len(all_layers) * 0.35),
-            ),
-        )
-        im = ax.imshow(log_mat, cmap=cmap, aspect="auto")
-        ax.set_xticks(range(len(labels)))
-        ax.set_xticklabels(labels)
-        ax.set_yticks(range(len(all_layers)))
-        ax.set_yticklabels(short, fontsize=8)
-        ax.set_title("Per-Layer Mean Fisher  (log₁₀, cumulative)")
-        plt.colorbar(im, ax=ax, label="log₁₀(mean Fisher)")
-        _save_fig(fig, figure_dir, "fisher_layer_heatmap")
-
-    # ── 8c: Per-task (non-cumulative) stats ──
-    if per_task:
-        labels = [e["game_name"] for e in per_task]
-        xs = list(range(len(labels)))
-        fig, ax = plt.subplots(figsize=(max(6, len(labels) * 2.5), 5))
-
-        for stat, col, marker, lbl in [
-            ("mean", PALETTE["pastel_blue"],  "o", "Mean"),
-            ("max",  PALETTE["pastel_pink"],  "s", "Max"),
-            ("std",  PALETTE["pastel_green"], "^", "Std"),
-        ]:
-            vals = [e["global"][stat] for e in per_task]
-            ax.plot(
-                xs, vals, color=col, marker=marker,
-                markeredgecolor=EDGE_COLOR, markeredgewidth=0.8,
-                markersize=7, linewidth=2.0, label=lbl,
-            )
-
-        ax.set_xticks(xs)
-        ax.set_xticklabels(labels)
-        ax.set_xlabel("Task")
-        ax.set_ylabel("Fisher Information")
-        ax.set_title("Per-Task Fisher Statistics  (not cumulative)")
-        ax.legend()
-        ax.ticklabel_format(style="scientific", axis="y", scilimits=(0, 0))
-        _save_fig(fig, figure_dir, "fisher_per_task_stats")
-
-    print(f"  Fisher diagnostic plots saved to {figure_dir}")
-
-
-# ── Plot 9: Lambda grid search results ──────────────────────────────────────
+# ── Plot 8: Lambda grid search results ──────────────────────────────────────
 
 def plot_lambda_grid(
     grid_log_path: str, figure_dir: str,
@@ -866,7 +759,6 @@ def plot_kl_divergence(
         ax.bar(
             x + offset, vals, bw, label=method,
             color=_method_color(i + 1), edgecolor=EDGE_COLOR, linewidth=1.2,
-            hatch=HATCHES[(i + 1) % len(HATCHES)],
         )
 
     ax.set_xticks(x)
@@ -1042,11 +934,6 @@ def main():
         plot_forgetting_gap(all_results, figure_dir, "forgetting_gap")
         plot_relative_bar(all_results, figure_dir, "relative_performance")
         plot_summary_table(all_results, figure_dir, "summary_table")
-
-    # Fisher / Hessian diagnostics
-    fisher_path = os.path.join(checkpoint_dir, args.tag, "htcl_fisher_log.json")
-    print("\nGenerating Fisher / Hessian diagnostic plots...")
-    plot_fisher_diagnostics(fisher_path, figure_dir)
 
     # Lambda grid search results
     grid_path = os.path.join(checkpoint_dir, args.tag, "htcl_lambda_grid.json")

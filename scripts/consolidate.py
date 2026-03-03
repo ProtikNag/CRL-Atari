@@ -242,11 +242,11 @@ def main():
                     f"lr={dist_cfg['distill_lr']}, batch_size={dist_cfg['distill_batch_size']}")
     elif args.method == "htcl":
         htcl_cfg = config["htcl"]
-        logger.info(f"HTCL config: lambda={htcl_cfg['lambda_htcl']}, "
-                    f"lambda_auto={htcl_cfg['lambda_auto']}, "
+        logger.info(f"HTCL config: lambda_candidates={htcl_cfg.get('lambda_candidates', [])}, "
                     f"fisher_samples={htcl_cfg['fisher_samples']}, "
-                    f"catch_up_iters={htcl_cfg['catch_up_iterations']}, "
-                    f"eta={htcl_cfg['eta']}")
+                    f"eta={htcl_cfg['eta']}, "
+                    f"num_passes={htcl_cfg.get('num_passes', 1)}, "
+                    f"joint_refinement={htcl_cfg.get('joint_refinement', False)}")
 
     # Load expert results
     import time as _time
@@ -348,70 +348,113 @@ def main():
             config, device=device, logger=logger,
         )
 
-        # Register first expert as baseline task
-        consolidator.register_initial_task(
-            global_model,
-            expert_results[0]["valid_actions"],
-            filtered_states_list[0],
-            expert_results[0]["game_name"],
+        # Per-lambda consolidation loop
+        htcl_cfg = config["htcl"]
+        lambda_candidates = htcl_cfg.get(
+            "lambda_candidates", [0.1, 1.0, 10.0, 100.0, 1000.0],
         )
 
-        consolidated_model = consolidator.consolidate(
-            global_model, expert_results,
-            filtered_states_list=filtered_states_list,
-            expert_models=expert_models,
-        )
+        for lam in lambda_candidates:
+            logger.info(f"\n{'=' * 60}")
+            logger.info(f"HTCL consolidation with lambda = {lam}")
+            logger.info("=" * 60)
 
-        # Save Fisher / Hessian diagnostic log
+            # Fresh global model from first expert for each lambda
+            lam_model = build_model(config, device)
+            lam_model.load_state_dict(init_sd)
+
+            lam_consolidator = HTCLConsolidator(
+                config, device=device, logger=logger,
+            )
+
+            lam_consolidator.register_initial_task(
+                lam_model,
+                expert_results[0]["valid_actions"],
+                filtered_states_list[0],
+                expert_results[0]["game_name"],
+            )
+
+            consolidated_model = lam_consolidator.consolidate(
+                lam_model, expert_results,
+                filtered_states_list=filtered_states_list,
+                expert_models=expert_models,
+                lambda_override=lam,
+                num_passes=htcl_cfg.get("num_passes", 1),
+                joint_refinement=htcl_cfg.get("joint_refinement", False),
+            )
+
+            # Post-consolidation statistics
+            total_norm_after = sum(
+                p.data.norm().item() ** 2
+                for p in consolidated_model.parameters()
+            ) ** 0.5
+            logger.info(
+                f"  Consolidated model param norm: {total_norm_after:.4f} "
+                f"(delta: {total_norm_after - total_norm:+.4f})"
+            )
+
+            # Save checkpoint
+            save_path = os.path.join(
+                config["logging"]["checkpoint_dir"],
+                args.tag,
+                f"consolidated_htcl_lam{lam}.pt",
+            )
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            torch.save(consolidated_model.state_dict(), save_path)
+            logger.info(f"  Saved to {save_path}")
+
+        # Save Fisher log from last consolidator (representative)
         fisher_log_path = os.path.join(
             config["logging"]["checkpoint_dir"],
             args.tag,
             "htcl_fisher_log.json",
         )
-        consolidator.save_fisher_log(fisher_log_path)
+        lam_consolidator.save_fisher_log(fisher_log_path)
 
         # Save lambda grid search log (if grid search was run)
-        if consolidator.lambda_grid_results:
+        if lam_consolidator.lambda_grid_results:
             grid_log_path = os.path.join(
                 config["logging"]["checkpoint_dir"],
                 args.tag,
                 "htcl_lambda_grid.json",
             )
-            consolidator.save_lambda_grid_log(grid_log_path)
+            lam_consolidator.save_lambda_grid_log(grid_log_path)
     else:
         raise ValueError(f"Unknown method: {args.method}")
 
-    # ── Post-consolidation statistics ──
-    total_norm_after = sum(
-        p.data.norm().item() ** 2 for p in consolidated_model.parameters()
-    ) ** 0.5
-    logger.info(
-        f"Consolidated model param norm: {total_norm_after:.4f} "
-        f"(delta: {total_norm_after - total_norm:+.4f})"
-    )
-
-    drift_norms = {}
-    for key, param in consolidated_model.named_parameters():
-        drift = (
-            param.data - init_sd[key].to(device)
-        ).norm().item()
-        drift_norms[key.split('.')[0]] = (
-            drift_norms.get(key.split('.')[0], 0) + drift
-        )
-    for layer, drift in drift_norms.items():
-        logger.info(f"  Weight drift [{layer}]: {drift:.6f}")
-
-    # Save consolidated model
-    save_path = os.path.join(
-        config["logging"]["checkpoint_dir"],
-        args.tag,
-        f"consolidated_{args.method}.pt",
-    )
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    torch.save(consolidated_model.state_dict(), save_path)
-    logger.info(f"Consolidated model saved to {save_path}")
     _total_time = _time.time() - _t0
     logger.info(f"Total consolidation time ({args.method}): {_total_time:.1f}s")
+
+    # ── Post-consolidation statistics (distillation only) ──
+    if args.method == "distillation":
+        total_norm_after = sum(
+            p.data.norm().item() ** 2
+            for p in consolidated_model.parameters()
+        ) ** 0.5
+        logger.info(
+            f"Consolidated model param norm: {total_norm_after:.4f} "
+            f"(delta: {total_norm_after - total_norm:+.4f})"
+        )
+
+        drift_norms = {}
+        for key, param in consolidated_model.named_parameters():
+            drift = (
+                param.data - init_sd[key].to(device)
+            ).norm().item()
+            drift_norms[key.split('.')[0]] = (
+                drift_norms.get(key.split('.')[0], 0) + drift
+            )
+        for layer, drift in drift_norms.items():
+            logger.info(f"  Weight drift [{layer}]: {drift:.6f}")
+
+        save_path = os.path.join(
+            config["logging"]["checkpoint_dir"],
+            args.tag,
+            f"consolidated_{args.method}.pt",
+        )
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        torch.save(consolidated_model.state_dict(), save_path)
+        logger.info(f"Consolidated model saved to {save_path}")
 
     logger.close()
 
