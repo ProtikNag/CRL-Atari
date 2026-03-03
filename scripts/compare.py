@@ -389,41 +389,82 @@ def plot_relative_bar(
 def plot_summary_table(
     results: dict, figure_dir: str, filename: str = "summary_table",
 ) -> None:
-    """Render a publication-ready summary table as a figure image."""
+    """Render a publication-ready summary table of mean rewards as a figure.
+
+    Rows correspond to methods (Expert, Distillation, HTCL per-lambda, etc.)
+    and columns to games plus an Average column.  The best HTCL lambda row
+    (by average reward) is highlighted in green.
+    """
     methods = list(results.keys())
     games = [r["game_name"] for r in results[methods[0]]]
 
     col_labels = games + ["Average"]
     cell_text = []
+    row_labels = []
+
+    # Track best HTCL lambda by average reward
+    best_htcl_avg = -float("inf")
+    best_htcl_key = None
+
     for method in methods:
         row = []
         rewards = []
         for r in results[method]:
-            row.append(f"{r['mean_reward']:.1f} ± {r['std_reward']:.1f}")
+            row.append(f"{r['mean_reward']:.1f} \u00b1 {r['std_reward']:.1f}")
             rewards.append(r["mean_reward"])
-        row.append(f"{np.mean(rewards):.1f}")
+        avg = np.mean(rewards)
+        row.append(f"{avg:.1f}")
         cell_text.append(row)
+        row_labels.append(method)
 
+        if "HTCL" in method and "\u03bb" in method and avg > best_htcl_avg:
+            best_htcl_avg = avg
+            best_htcl_key = method
+
+    n_rows = len(row_labels)
     fig, ax = plt.subplots(
-        figsize=(max(7, len(col_labels) * 2.2), max(2, len(methods) * 0.8 + 1)),
+        figsize=(
+            max(7, len(col_labels) * 2.2),
+            max(2, n_rows * 0.7 + 1),
+        ),
     )
     ax.axis("off")
     table = ax.table(
-        cellText=cell_text, rowLabels=methods, colLabels=col_labels,
+        cellText=cell_text, rowLabels=row_labels, colLabels=col_labels,
         loc="center", cellLoc="center",
     )
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     table.scale(1.0, 1.6)
 
-    # Style header
+    # Style header row
     for j in range(len(col_labels)):
         table[0, j].set_facecolor(PALETTE["pastel_blue"])
         table[0, j].set_edgecolor(EDGE_COLOR)
-    for i in range(len(methods)):
-        table[i + 1, -1].set_facecolor(PALETTE["pastel_yellow"])
 
-    ax.set_title("Summary Statistics", fontsize=13, pad=20)
+    # Style data rows
+    for i, method in enumerate(row_labels):
+        data_row = i + 1  # +1 for col header
+        # Average column highlight
+        table[data_row, -1].set_facecolor(PALETTE["pastel_yellow"])
+        # Best HTCL lambda row in green
+        if method == best_htcl_key:
+            for j in range(-1, len(col_labels)):
+                try:
+                    table[data_row, j].set_facecolor(PALETTE["pastel_green"])
+                    table[data_row, j].set_edgecolor(EDGE_COLOR)
+                except KeyError:
+                    pass
+        # Expert rows in light teal
+        elif method.startswith("Expert"):
+            for j in range(-1, len(col_labels)):
+                try:
+                    table[data_row, j].set_facecolor(PALETTE["pastel_teal"])
+                    table[data_row, j].set_edgecolor(EDGE_COLOR)
+                except KeyError:
+                    pass
+
+    ax.set_title("Reward Comparison (Mean \u00b1 Std)", fontsize=13, pad=20)
     _save_fig(fig, figure_dir, filename)
 
 
@@ -904,25 +945,17 @@ def main():
     all_results["Expert"] = expert_results
 
     # ── 2. Evaluate consolidated models on ALL tasks ────────────────────────
-    methods = ["distillation", "htcl"]
-    display_names = {"distillation": "Distillation", "htcl": "HTCL"}
-
-    for method in methods:
-        ckpt = os.path.join(
-            checkpoint_dir, args.tag, f"consolidated_{method}.pt",
-        )
-        if not os.path.exists(ckpt):
-            print(f"\nWARNING: Consolidated model not found for {method}, skipping.")
-            continue
-
-        display = display_names[method]
+    # 2a. Distillation
+    dist_ckpt = os.path.join(
+        checkpoint_dir, args.tag, "consolidated_distillation.pt",
+    )
+    if os.path.exists(dist_ckpt):
         print(f"\n{'=' * 60}")
-        print(f"Evaluating {display} Consolidated Model")
-        print(f"{'=' * 60}")
+        print("Evaluating Distillation Consolidated Model")
+        print("=" * 60)
 
-        model = load_model_checkpoint(ckpt, config, device)
+        model = load_model_checkpoint(dist_ckpt, config, device)
         method_results = []
-
         for env_id in task_sequence:
             game = env_id.replace("NoFrameskip-v4", "")
             result = evaluate_on_task(
@@ -930,11 +963,74 @@ def main():
             )
             method_results.append(result)
             print(
-                f"  {display} on {game}: "
+                f"  Distillation on {game}: "
                 f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
             )
+        all_results["Distillation"] = method_results
+    else:
+        print("\nWARNING: Distillation checkpoint not found, skipping.")
 
-        all_results[display] = method_results
+    # 2b. HTCL per-lambda models
+    import glob as _glob
+
+    htcl_pattern = os.path.join(
+        checkpoint_dir, args.tag, "consolidated_htcl_lam*.pt",
+    )
+    htcl_ckpts = sorted(_glob.glob(htcl_pattern))
+
+    # Also check for legacy single checkpoint
+    legacy_ckpt = os.path.join(
+        checkpoint_dir, args.tag, "consolidated_htcl.pt",
+    )
+
+    if htcl_ckpts:
+        for ckpt_path in htcl_ckpts:
+            fname = os.path.basename(ckpt_path)
+            lam_str = fname.replace("consolidated_htcl_lam", "").replace(".pt", "")
+            try:
+                lam_val = float(lam_str)
+            except ValueError:
+                continue
+
+            display = f"HTCL (\u03bb={lam_val:g})"
+            print(f"\n{'=' * 60}")
+            print(f"Evaluating {display}")
+            print("=" * 60)
+
+            model = load_model_checkpoint(ckpt_path, config, device)
+            method_results = []
+            for env_id in task_sequence:
+                game = env_id.replace("NoFrameskip-v4", "")
+                result = evaluate_on_task(
+                    model, env_id, config, device, union_actions, num_episodes,
+                )
+                method_results.append(result)
+                print(
+                    f"  {display} on {game}: "
+                    f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
+                )
+            all_results[display] = method_results
+
+    elif os.path.exists(legacy_ckpt):
+        print(f"\n{'=' * 60}")
+        print("Evaluating HTCL Consolidated Model (legacy)")
+        print("=" * 60)
+
+        model = load_model_checkpoint(legacy_ckpt, config, device)
+        method_results = []
+        for env_id in task_sequence:
+            game = env_id.replace("NoFrameskip-v4", "")
+            result = evaluate_on_task(
+                model, env_id, config, device, union_actions, num_episodes,
+            )
+            method_results.append(result)
+            print(
+                f"  HTCL on {game}: "
+                f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
+            )
+        all_results["HTCL"] = method_results
+    else:
+        print("\nWARNING: No HTCL checkpoints found, skipping.")
 
     # ── 3. Generate all visualisations ──────────────────────────────────────
     if len(all_results) > 1:
