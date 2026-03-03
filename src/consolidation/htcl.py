@@ -8,9 +8,10 @@ Consolidation" (Nag, Raghavan, Narayanan, 2026).
 Key properties:
   - Global model initialized from the first expert (not averaged)
   - Diagonal Fisher approximation of the Hessian on high-confidence states
-  - Lambda selected via validation-based grid search (KL proxy)
-  - Catch-up iterations with geometrically decaying step size
-"""
+  - Lambda provided externally (one consolidation per lambda candidate)  - Multi-pass: iterates over all tasks N times so cumulative Fisher
+    protects earlier tasks from later updates
+  - Joint refinement: final Taylor update using Fisher/gradient computed
+    jointly over all tasks simultaneously"""
 
 import torch
 import torch.nn as nn
@@ -65,13 +66,10 @@ class HTCLConsolidator:
         self.lambda_auto = self.htcl_cfg.get("lambda_auto", False)
         self.lambda_margin = self.htcl_cfg.get("lambda_margin", 0.1)
         self.fisher_samples = self.htcl_cfg["fisher_samples"]
-        self.catch_up_iterations = self.htcl_cfg["catch_up_iterations"]
         self.eta = self.htcl_cfg.get("eta", 0.9)
-        self.eta_decay = self.htcl_cfg.get("eta_decay", 0.5)
         self.diagonal_fisher = self.htcl_cfg.get("diagonal_fisher", True)
 
-        # Lambda grid search config
-        self.lambda_grid_search = self.htcl_cfg.get("lambda_grid_search", False)
+        # Lambda candidates (consolidation is run once per candidate externally)
         self.lambda_candidates = self.htcl_cfg.get(
             "lambda_candidates", [0.1, 1.0, 10.0, 100.0, 1000.0]
         )
@@ -695,30 +693,43 @@ class HTCLConsolidator:
         expert_results: List[Dict[str, Any]],
         filtered_states_list: Optional[List[torch.Tensor]] = None,
         expert_models: Optional[List[DQNNetwork]] = None,
+        lambda_override: Optional[float] = None,
+        num_passes: int = 1,
+        joint_refinement: bool = False,
     ) -> DQNNetwork:
         """Consolidate expert models into global model via HTCL.
 
         Expects that ``register_initial_task()`` has already been called
         so that task-1 Fisher/gradient are available.  Consolidates
-        remaining tasks (expert_results[1:]) sequentially.
+        tasks sequentially over ``num_passes`` rounds, letting the
+        cumulative Fisher accumulate protection for earlier tasks.
 
-        If ``lambda_grid_search`` is enabled, runs the grid search first
-        to pick the best lambda.
+        When ``joint_refinement`` is True, an additional Taylor update is
+        performed after the multi-pass loop using Fisher and gradient
+        computed jointly over **all** tasks simultaneously.
 
         Args:
             global_model: Current global model (initialized to expert 1).
-            expert_results: List of ALL expert results (task 1 included for
-                KL evaluation during grid search).
+            expert_results: List of ALL expert results (task 1 included).
             filtered_states_list: Pre-filtered high-confidence states per
                 expert (one tensor per expert, same order as expert_results).
-            expert_models: Frozen expert DQN models (needed for KL-based
-                lambda grid search).
+            expert_models: Frozen expert DQN models.
+            lambda_override: If provided, use this lambda instead of the
+                config default.
+            num_passes: Number of full passes over the task sequence.
+                Multi-pass lets cumulative Fisher protect earlier tasks.
+            joint_refinement: If True, perform a final Taylor update using
+                Fisher/gradient computed jointly over all tasks.
 
         Returns:
             The consolidated global model.
         """
         if self.logger:
-            self.logger.info("Starting HTCL consolidation...")
+            self.logger.info(
+                f"Starting HTCL consolidation "
+                f"({num_passes} pass{'es' if num_passes > 1 else ''}"
+                f"{', +joint refinement' if joint_refinement else ''})..."
+            )
 
         consolidated = copy.deepcopy(global_model).to(self.device)
         global_sd = {
@@ -726,31 +737,10 @@ class HTCLConsolidator:
             for name, param in consolidated.state_dict().items()
         }
 
-        # ── Lambda grid search (if enabled) ──
-        effective_lambda = self.lambda_htcl
-        if self.lambda_grid_search and expert_models is not None:
-            effective_lambda = self.grid_search_lambda(
-                global_sd, expert_results, expert_models,
-                filtered_states_list or [],
-                consolidated,
-            )
-            # Reset cumulative state after grid search trials
-            first_result = expert_results[0]
-            first_states = (
-                filtered_states_list[0] if filtered_states_list else None
-            )
-            consolidated.load_state_dict(global_sd)
-            self.cumulative_fisher = self.compute_diagonal_fisher(
-                consolidated,
-                first_result["valid_actions"],
-                states=first_states,
-            )
-            self.cumulative_gradient = self.compute_gradient(
-                consolidated,
-                first_result["valid_actions"],
-                states=first_states,
-            )
-            self.num_registered_tasks = 1
+        effective_lambda = (
+            lambda_override if lambda_override is not None
+            else self.lambda_htcl
+        )
 
         if self.logger:
             self.logger.info(
@@ -758,142 +748,264 @@ class HTCLConsolidator:
                 f"for consolidation."
             )
 
-        # ── Consolidate remaining tasks (skip task 1) ──
-        tasks_to_consolidate = expert_results[1:]
-        states_to_use = (
-            filtered_states_list[1:]
+        # Build ordered task list: all tasks including task-1 for passes > 1
+        all_tasks = list(range(len(expert_results)))
+        all_states = (
+            filtered_states_list
             if filtered_states_list
-            else [None] * len(tasks_to_consolidate)
+            else [None] * len(expert_results)
         )
 
-        for rel_idx, (result, filt_states) in enumerate(
-            zip(tasks_to_consolidate, states_to_use)
-        ):
-            # Global task index (0-based, task 1 was index 0)
-            task_idx = rel_idx + 1
+        # ── Multi-pass consolidation ──
+        # Pass 0 uses full eta (the main consolidation).
+        # Subsequent passes use geometrically decaying eta so corrections
+        # become progressively smaller, preventing oscillation between
+        # experts. Each pass resets cumulative Fisher/gradient for a fresh
+        # Hessian at the current model position.
+        eta_decay = 0.3  # multiply eta by this factor each subsequent pass
+        global_step = 0
+        for pass_idx in range(num_passes):
+            pass_eta = self.eta * (eta_decay ** pass_idx)
 
-            game_name = result["game_name"]
-            local_sd = result["policy_state_dict"]
-            valid_actions = result["valid_actions"]
-
-            if self.logger:
+            if self.logger and num_passes > 1:
                 self.logger.info(
-                    f"HTCL: Consolidating task {task_idx + 1}/"
-                    f"{len(expert_results)} ({game_name})..."
+                    f"\n--- Pass {pass_idx + 1}/{num_passes} "
+                    f"(eta={pass_eta:.4f}) ---"
                 )
 
-            # Compute Fisher at current global params on this task
-            consolidated.load_state_dict(global_sd)
-            task_fisher = self.compute_diagonal_fisher(
-                consolidated, valid_actions, states=filt_states,
-            )
-
-            # Accumulate Fisher
-            for name in task_fisher:
-                self.cumulative_fisher[name] = (
-                    self.cumulative_fisher[name] + task_fisher[name]
-                )
-
-            # Log Fisher diagnostics
-            self._log_fisher_statistics(
-                task_fisher, task_idx, game_name,
-                prefix="htcl", is_cumulative=False,
-            )
-            self._log_fisher_statistics(
-                self.cumulative_fisher, task_idx, game_name,
-                prefix="htcl", is_cumulative=True,
-            )
-
-            # Compute gradient at global params on this task
-            task_gradient = self.compute_gradient(
-                consolidated, valid_actions, states=filt_states,
-            )
-
-            # Accumulate gradient
-            for name in task_gradient:
-                self.cumulative_gradient[name] = (
-                    self.cumulative_gradient[name] + task_gradient[name]
-                )
-
-            # Validate lambda
-            eff_lam = self._ensure_lambda_constraint(
-                self.cumulative_fisher, effective_lambda,
-            )
-
-            if self.logger:
-                self.logger.info(
-                    f"HTCL: Task {task_idx + 1} ({game_name}) | "
-                    f"effective_lambda = {eff_lam:.4f}"
-                )
-                self.logger.log_scalar(
-                    "htcl/effective_lambda", eff_lam, task_idx + 1,
-                )
-                self.logger.log_scalar(
-                    "htcl/num_tasks_consolidated",
-                    task_idx + 1, task_idx + 1,
-                )
-
-            # ── Main Taylor update ──
-            updated_sd = self._taylor_update(
-                global_sd, local_sd,
-                self.cumulative_fisher, self.cumulative_gradient,
-                eff_lam,
-            )
-
-            # Log drift and update norms
-            if self.logger:
-                drift_norm = sum(
-                    (local_sd[n].to(self.device)
-                     - global_sd[n].to(self.device))
-                    .norm().item() ** 2
-                    for n in self.cumulative_fisher
-                ) ** 0.5
-                update_norm = sum(
-                    (updated_sd[n]
-                     - global_sd[n].to(self.device))
-                    .norm().item() ** 2
-                    for n in self.cumulative_fisher
-                ) ** 0.5
-                self.logger.info(
-                    f"HTCL: {game_name} | "
-                    f"expert_drift_norm = {drift_norm:.4f} | "
-                    f"update_norm = {update_norm:.4f}"
-                )
-                self.logger.log_scalar(
-                    f"htcl/{game_name}/expert_drift_norm",
-                    drift_norm, task_idx + 1,
-                )
-                self.logger.log_scalar(
-                    f"htcl/{game_name}/update_norm",
-                    update_norm, task_idx + 1,
-                )
-
-            global_sd = updated_sd
-
-            # ── Catch-up iterations with decaying eta ──
-            eta_catch = self.eta
-            for catch_iter in range(self.catch_up_iterations):
-                eta_catch *= self.eta_decay  # Decay before use
-
+            if pass_idx > 0:
+                # Reset Fisher/gradient to zeros for a fresh pass
                 consolidated.load_state_dict(global_sd)
-                refined_gradient = self.compute_gradient(
+                if self.logger:
+                    self.logger.info(
+                        "  Resetting cumulative Fisher/gradient "
+                        "for fresh pass at current model position..."
+                    )
+                self.cumulative_fisher = {
+                    name: torch.zeros_like(param)
+                    for name, param in consolidated.named_parameters()
+                    if param.requires_grad
+                }
+                self.cumulative_gradient = {
+                    name: torch.zeros_like(param)
+                    for name, param in consolidated.named_parameters()
+                    if param.requires_grad
+                }
+                self.num_registered_tasks = 0
+
+            # On pass 0, skip task-0 (already registered by caller).
+            # On subsequent passes, consolidate ALL tasks including task-0.
+            start_idx = 1 if pass_idx == 0 else 0
+
+            for task_idx in range(start_idx, len(expert_results)):
+                result = expert_results[task_idx]
+                filt_states = all_states[task_idx]
+                game_name = result["game_name"]
+                local_sd = result["policy_state_dict"]
+                valid_actions = result["valid_actions"]
+                global_step += 1
+
+                if self.logger:
+                    self.logger.info(
+                        f"HTCL: [Pass {pass_idx + 1}] Consolidating "
+                        f"task {task_idx + 1}/{len(expert_results)} "
+                        f"({game_name})..."
+                    )
+
+                # Compute Fisher at current global params on this task
+                consolidated.load_state_dict(global_sd)
+                task_fisher = self.compute_diagonal_fisher(
                     consolidated, valid_actions, states=filt_states,
                 )
 
-                global_sd = self._taylor_update(
-                    global_sd, local_sd,
-                    self.cumulative_fisher, refined_gradient,
-                    eff_lam, eta_override=eta_catch,
+                # Accumulate Fisher
+                for name in task_fisher:
+                    self.cumulative_fisher[name] = (
+                        self.cumulative_fisher[name] + task_fisher[name]
+                    )
+
+                # Log Fisher diagnostics
+                self._log_fisher_statistics(
+                    task_fisher, global_step, game_name,
+                    prefix="htcl", is_cumulative=False,
+                )
+                self._log_fisher_statistics(
+                    self.cumulative_fisher, global_step, game_name,
+                    prefix="htcl", is_cumulative=True,
+                )
+
+                # Compute gradient at global params on this task
+                task_gradient = self.compute_gradient(
+                    consolidated, valid_actions, states=filt_states,
+                )
+
+                # Accumulate gradient
+                for name in task_gradient:
+                    self.cumulative_gradient[name] = (
+                        self.cumulative_gradient[name]
+                        + task_gradient[name]
+                    )
+
+                # Validate lambda
+                eff_lam = self._ensure_lambda_constraint(
+                    self.cumulative_fisher, effective_lambda,
                 )
 
                 if self.logger:
                     self.logger.info(
-                        f"HTCL: Catch-up {catch_iter + 1}/"
-                        f"{self.catch_up_iterations} for {game_name}"
-                        f" | eta={eta_catch:.4f}"
+                        f"HTCL: [Pass {pass_idx + 1}] Task "
+                        f"{task_idx + 1} ({game_name}) | "
+                        f"effective_lambda = {eff_lam:.4f}"
+                    )
+                    self.logger.log_scalar(
+                        "htcl/effective_lambda", eff_lam, global_step,
                     )
 
-            self.num_registered_tasks += 1
+                # ── Main Taylor update (with pass-decayed eta) ──
+                updated_sd = self._taylor_update(
+                    global_sd, local_sd,
+                    self.cumulative_fisher, self.cumulative_gradient,
+                    eff_lam,
+                    eta_override=pass_eta,
+                )
+
+                # Log drift and update norms
+                if self.logger:
+                    drift_norm = sum(
+                        (local_sd[n].to(self.device)
+                         - global_sd[n].to(self.device))
+                        .norm().item() ** 2
+                        for n in self.cumulative_fisher
+                    ) ** 0.5
+                    update_norm = sum(
+                        (updated_sd[n]
+                         - global_sd[n].to(self.device))
+                        .norm().item() ** 2
+                        for n in self.cumulative_fisher
+                    ) ** 0.5
+                    self.logger.info(
+                        f"HTCL: {game_name} | "
+                        f"expert_drift_norm = {drift_norm:.4f} | "
+                        f"update_norm = {update_norm:.4f}"
+                    )
+                    self.logger.log_scalar(
+                        f"htcl/{game_name}/expert_drift_norm",
+                        drift_norm, global_step,
+                    )
+                    self.logger.log_scalar(
+                        f"htcl/{game_name}/update_norm",
+                        update_norm, global_step,
+                    )
+
+                global_sd = updated_sd
+                self.num_registered_tasks += 1
+
+        # ── Joint refinement step ──
+        # Computes Fisher and gradient at the final position over ALL
+        # tasks simultaneously, then applies per-task Taylor corrections
+        # averaged together with a reduced eta.
+        if joint_refinement:
+            refine_eta = self.eta * 0.1  # small step to avoid destabilizing
+
+            if self.logger:
+                self.logger.info(
+                    f"\n--- Joint refinement (eta={refine_eta:.4f}): "
+                    f"computing Fisher & gradient over ALL tasks ---"
+                )
+
+            # Compute joint Fisher and gradient over all tasks
+            consolidated.load_state_dict(global_sd)
+            joint_fisher = {
+                name: torch.zeros_like(param)
+                for name, param in consolidated.named_parameters()
+                if param.requires_grad
+            }
+            joint_gradient = {
+                name: torch.zeros_like(param)
+                for name, param in consolidated.named_parameters()
+                if param.requires_grad
+            }
+
+            for task_idx, (result, filt_states) in enumerate(
+                zip(expert_results, all_states)
+            ):
+                game_name = result["game_name"]
+                valid_actions = result["valid_actions"]
+
+                if self.logger:
+                    self.logger.info(
+                        f"  Joint Fisher/gradient for {game_name}..."
+                    )
+
+                task_fisher = self.compute_diagonal_fisher(
+                    consolidated, valid_actions, states=filt_states,
+                )
+                task_gradient = self.compute_gradient(
+                    consolidated, valid_actions, states=filt_states,
+                )
+
+                for name in task_fisher:
+                    joint_fisher[name] += task_fisher[name]
+                    joint_gradient[name] += task_gradient[name]
+
+            # Validate lambda for joint Fisher
+            eff_lam = self._ensure_lambda_constraint(
+                joint_fisher, effective_lambda,
+            )
+
+            if self.logger:
+                self.logger.info(
+                    f"  Joint refinement effective_lambda = {eff_lam:.4f}"
+                )
+
+            # Per-task Taylor corrections: compute the update direction
+            # toward each expert under the joint Fisher, then average.
+            avg_correction = {
+                name: torch.zeros_like(param)
+                for name, param in consolidated.named_parameters()
+                if param.requires_grad
+            }
+            num_tasks = len(expert_results)
+
+            for result in expert_results:
+                local_sd = result["policy_state_dict"]
+                game_name = result["game_name"]
+
+                for name in joint_fisher:
+                    w_global = global_sd[name].to(self.device)
+                    w_local = local_sd[name].to(self.device)
+                    h_diag = joint_fisher[name]
+                    g = joint_gradient[name]
+
+                    delta_d = w_local - w_global
+                    numerator = eff_lam * delta_d - g
+                    denominator = h_diag + eff_lam
+                    correction = numerator / (denominator + 1e-8)
+                    avg_correction[name] += correction / num_tasks
+
+            # Apply the averaged correction with small eta
+            refined_sd = {}
+            for name in global_sd:
+                if name in avg_correction:
+                    refined_sd[name] = (
+                        global_sd[name].to(self.device)
+                        + refine_eta * avg_correction[name]
+                    )
+                else:
+                    refined_sd[name] = global_sd[name]
+
+            # Log refinement norm
+            if self.logger:
+                refine_norm = sum(
+                    (refined_sd[n] - global_sd[n].to(self.device))
+                    .norm().item() ** 2
+                    for n in joint_fisher
+                ) ** 0.5
+                self.logger.info(
+                    f"  Joint refinement update_norm = {refine_norm:.4f}"
+                )
+
+            global_sd = refined_sd
 
         # Load final consolidated weights
         consolidated.load_state_dict(global_sd)

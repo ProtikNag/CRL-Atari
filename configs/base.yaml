@@ -82,7 +82,7 @@ consolidation:
 # --- Consolidation Replay Buffer ---
 # Shared raw buffer size collected per expert (used by both methods).
 # High-confidence states are filtered from this pool for Fisher / gradient.
-buffer_size_per_task: 50_000
+buffer_size_per_task: 100_000
 
 # --- Knowledge Distillation ---
 distillation:
@@ -97,21 +97,22 @@ htcl:
   # Number of high-confidence states kept for Fisher / gradient computation.
   # States are ranked by Q-value gap (max_Q - min_Q over valid actions);
   # only the top-K most decisive states are retained.
-  filtered_buffer_size: 10_000
-  fisher_samples: 2000
-  # Lambda grid search: evaluate each candidate and pick the one that
-  # minimises average KL divergence to expert policies across all tasks.
-  lambda_grid_search: true
+  filtered_buffer_size: 50_000
+  fisher_samples: 5000
+  # Lambda candidates for per-lambda consolidation.
   lambda_candidates: [0.1, 1.0, 10.0, 100.0, 1000.0]
-  # Fallback lambda used when lambda_grid_search is false.
+  # Default lambda used as fallback.
   lambda_htcl: 10.0
   lambda_auto: false
   lambda_margin: 0.1  # Safety margin above -mu_min(H)
-  # Catch-up iterations with geometrically decaying step size.
-  catch_up_iterations: 3
-  eta: 0.9           # Initial Taylor update step size
-  eta_decay: 0.5     # Multiply eta by this factor each catch-up iteration
+  eta: 0.9            # Taylor update step size
   diagonal_fisher: true
+  # Multi-pass: iterate over all tasks this many times so cumulative Fisher
+  # accumulates protection for earlier tasks across passes.
+  num_passes: 3
+  # Joint refinement: after multi-pass, compute Fisher & gradient over ALL
+  # tasks jointly and apply one final Taylor update toward mean expert.
+  joint_refinement: true
 
 # --- Evaluation ---
 evaluation:
