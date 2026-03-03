@@ -77,21 +77,21 @@
     {
       "env_id": "BreakoutNoFrameskip-v4",
       "game_name": "Breakout",
-      "mean_reward": 0.0,
-      "std_reward": 0.0,
+      "mean_reward": 2.4,
+      "std_reward": 3.97994974842648,
       "min_reward": 0.0,
-      "max_reward": 0.0,
+      "max_reward": 9.0,
       "median_reward": 0.0,
       "num_episodes": 30
     },
     {
       "env_id": "SpaceInvadersNoFrameskip-v4",
       "game_name": "SpaceInvaders",
-      "mean_reward": 285.0,
-      "std_reward": 0.0,
-      "min_reward": 285.0,
-      "max_reward": 285.0,
-      "median_reward": 285.0,
+      "mean_reward": 377.8333333333333,
+      "std_reward": 210.74741332273146,
+      "min_reward": 215.0,
+      "max_reward": 725.0,
+      "median_reward": 272.5,
       "num_episodes": 30
     }
   ]
