@@ -26,8 +26,6 @@ Step-size schedule: eta_k = eta_0 * gamma^k  (Algorithm 2, line 13).
 """
 
 import copy
-import json
-import os
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -71,7 +69,6 @@ class IterativeConsolidator:
 
         # Internal HTCL helper for Fisher/gradient computation
         self._htcl = HTCLConsolidator(config, device=device, logger=logger)
-        self.fisher_log: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Fisher / gradient helper
@@ -125,17 +122,6 @@ class IterativeConsolidator:
             for name in task_fisher:
                 avg_fisher[name] += task_fisher[name] / num_tasks
                 avg_gradient[name] += task_gradient[name] / num_tasks
-
-            self._htcl._log_fisher_statistics(
-                task_fisher, round_idx * num_tasks + task_idx, game_name,
-                prefix="iterative", is_cumulative=False,
-            )
-
-        self._htcl._log_fisher_statistics(
-            avg_fisher, round_idx * num_tasks + num_tasks,
-            f"round_{round_idx}",
-            prefix="iterative", is_cumulative=True,
-        )
 
         return avg_fisher, avg_gradient
 
@@ -337,18 +323,7 @@ class IterativeConsolidator:
         consolidated.load_state_dict(global_sd)
         consolidated.eval()
 
-        # Store fisher log from helper
-        self.fisher_log = self._htcl.fisher_log
-
         if self.logger:
             self.logger.info("Multi-Round Joint Consolidation complete.")
 
         return consolidated
-
-    def save_fisher_log(self, path: str) -> None:
-        """Save Fisher statistics log."""
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self.fisher_log, f, indent=2)
-        if self.logger:
-            self.logger.info(f"Iterative: Fisher log saved to {path}")
