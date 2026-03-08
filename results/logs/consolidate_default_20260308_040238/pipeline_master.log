@@ -1,0 +1,257 @@
+[2026-03-08 04:02:38] ============================================================
+[2026-03-08 04:02:38]  CRL-Atari  Consolidation Pipeline
+[2026-03-08 04:02:38] ============================================================
+[2026-03-08 04:02:38]  Tag:    default
+[2026-03-08 04:02:38]  Config: configs/base.yaml
+[2026-03-08 04:02:38]  Debug:  off
+[2026-03-08 04:02:38]  Device: auto
+[2026-03-08 04:02:38]  Log:    results/logs/consolidate_default_20260308_040238
+[2026-03-08 04:02:38] ============================================================
+[2026-03-08 04:02:38] ---- Step 1/3: Consolidation ----
+[2026-03-08 04:02:38] --- Knowledge Distillation: checkpoint exists, SKIPPING ---
+[2026-03-08 04:02:38] --- One-Shot: checkpoint exists, SKIPPING ---
+[2026-03-08 04:02:38] --- Iterative: checkpoint exists, SKIPPING ---
+[2026-03-08 04:02:38] --- Hybrid: checkpoint exists, SKIPPING ---
+[2026-03-08 04:02:38] ---- Step 2/3: Evaluation ----
+[2026-03-08 04:02:38] Evaluating expert: Breakout
+[2026-03-08 04:02:38] START: 02_eval_expert_Breakout
+[2026-03-08 04:02:38] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_Breakout_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_Breakout_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_Breakout_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=386.00 +/- 35.02 (min=316.0, max=405.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=51.00 +/- 29.73 (min=0.0, max=80.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_expert_Breakout_default.json
+[2026-03-08 04:08:26] DONE: 02_eval_expert_Breakout
+
+[2026-03-08 04:08:26] Evaluating expert: Pong
+[2026-03-08 04:08:26] START: 02_eval_expert_Pong
+[2026-03-08 04:08:26] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_Pong_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_Pong_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_Pong_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=131.33 +/- 84.92 (min=40.0, max=275.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=19.93 +/- 0.89 (min=19.0, max=21.0)
+
+Results saved to results/figures/eval_expert_Pong_default.json
+[2026-03-08 04:10:29] DONE: 02_eval_expert_Pong
+
+[2026-03-08 04:10:29] Evaluating expert: SpaceInvaders
+[2026-03-08 04:10:29] START: 02_eval_expert_SpaceInvaders
+[2026-03-08 04:10:29] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_SpaceInvaders_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_SpaceInvaders_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_SpaceInvaders_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=1151.83 +/- 115.24 (min=995.0, max=1320.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_expert_SpaceInvaders_default.json
+[2026-03-08 04:12:14] DONE: 02_eval_expert_SpaceInvaders
+
+[2026-03-08 04:12:14] Evaluating consolidated: distillation
+[2026-03-08 04:12:14] START: 02_eval_distillation
+[2026-03-08 04:12:14] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_distillation.pt --all-tasks --config configs/base.yaml --output results/figures/eval_distillation_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_distillation.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=3.00 +/- 3.00 (min=0.0, max=6.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=97.17 +/- 45.07 (min=45.0, max=175.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-10.20 +/- 13.60 (min=-21.0, max=18.0)
+
+Results saved to results/figures/eval_distillation_default.json
+[2026-03-08 04:13:49] DONE: 02_eval_distillation
+
+[2026-03-08 04:13:49] Evaluating consolidated: oneshot
+[2026-03-08 04:13:49] START: 02_eval_oneshot
+[2026-03-08 04:13:49] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_oneshot.pt --all-tasks --config configs/base.yaml --output results/figures/eval_oneshot_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_oneshot.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_oneshot_default.json
+[2026-03-08 04:14:47] DONE: 02_eval_oneshot
+
+[2026-03-08 04:14:47] Evaluating consolidated: iterative
+[2026-03-08 04:14:47] START: 02_eval_iterative
+[2026-03-08 04:14:47] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_iterative.pt --all-tasks --config configs/base.yaml --output results/figures/eval_iterative_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_iterative.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_iterative_default.json
+[2026-03-08 04:15:46] DONE: 02_eval_iterative
+
+[2026-03-08 04:15:46] Evaluating consolidated: hybrid
+[2026-03-08 04:15:46] START: 02_eval_hybrid
+[2026-03-08 04:15:46] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_hybrid.pt --all-tasks --config configs/base.yaml --output results/figures/eval_hybrid_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_hybrid.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=5.00 +/- 3.44 (min=1.0, max=10.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=211.67 +/- 140.47 (min=60.0, max=425.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_hybrid_default.json
+[2026-03-08 04:16:53] DONE: 02_eval_hybrid
+
+[2026-03-08 04:16:53] ---- Step 3/3: Comparison Plots ----
+[2026-03-08 04:16:53] START: 03_compare
+[2026-03-08 04:16:53] CMD: python scripts/compare.py --config configs/base.yaml --tag default
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+
+============================================================
+Evaluating Expert Models
+============================================================
+  Expert (Breakout): 386.00 ± 35.02
+  Expert (SpaceInvaders): 1151.83 ± 115.24
+  Expert (Pong): 19.93 ± 0.89
+
+============================================================
+Evaluating Distillation Consolidated Model
+============================================================
+  Distillation on Breakout: 3.20 ± 2.99
+  Distillation on SpaceInvaders: 88.33 ± 32.49
+  Distillation on Pong: -6.43 ± 16.58
+
+============================================================
+Evaluating One-Shot Consolidated Model
+============================================================
+  One-Shot on Breakout: 2.40 ± 3.98
+  One-Shot on SpaceInvaders: 0.00 ± 0.00
+  One-Shot on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Iterative Consolidated Model
+============================================================
+  Iterative on Breakout: 3.00 ± 4.24
+  Iterative on SpaceInvaders: 0.00 ± 0.00
+  Iterative on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Hybrid Consolidated Model
+============================================================
+  Hybrid on Breakout: 5.47 ± 3.34
+  Hybrid on SpaceInvaders: 211.00 ± 154.19
+  Hybrid on Pong: -21.00 ± 0.00
+
+Generating comparison visualisations...
+  Saved → results/figures/{png,svg}/comparison_bar
+  Saved → results/figures/{png,svg}/performance_heatmap
+  Saved → results/figures/{png,svg}/reward_distributions
+  Saved → results/figures/{png,svg}/radar_chart
+  Saved → results/figures/{png,svg}/forgetting_gap
+  Saved → results/figures/{png,svg}/relative_performance
+  Saved → results/figures/{png,svg}/summary_table
+
+Computing KL divergence between consolidated and expert policies...
+  Saved → results/figures/{png,svg}/kl_divergence_comparison
+  KL divergence plot saved to results/figures
+
+Numerical results saved to results/figures/comparison_results_default.json
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Method                     Breakout   SpaceInvaders           Pong        Average
+--------------------------------------------------------------------------------
+Expert                       386.00        1151.83          19.93         519.26
+Distillation                   3.20          88.33          -6.43          28.37
+One-Shot                       2.40           0.00         -21.00          -6.20
+Iterative                      3.00           0.00         -21.00          -6.00
+Hybrid                         5.47         211.00         -21.00          65.16
+================================================================================
+
+Retention (% of Expert):
+  Distillation            0.8%     7.7%   -32.3%  (avg -7.9%)
+  One-Shot                0.6%     0.0%  -105.4%  (avg -34.9%)
+  Iterative               0.8%     0.0%  -105.4%  (avg -34.9%)
+  Hybrid                  1.4%    18.3%  -105.4%  (avg -28.5%)
+
+LaTeX table:
+\begin{tabular}{lcccc}
+\toprule
+Method & Breakout & SpaceInvaders & Pong & Average \\
+\midrule
+Expert & 386.0 & 1151.8 & 19.9 & 519.3 \\
+Distillation & 3.2 & 88.3 & -6.4 & 28.4 \\
+One-Shot & 2.4 & 0.0 & -21.0 & -6.2 \\
+Iterative & 3.0 & 0.0 & -21.0 & -6.0 \\
+Hybrid & 5.5 & 211.0 & -21.0 & 65.2 \\
+\bottomrule
+\end{tabular}
+[2026-03-08 04:29:37] DONE: 03_compare
+
+[2026-03-08 04:29:37] ============================================================
+[2026-03-08 04:29:37]  Pipeline Complete!
+[2026-03-08 04:29:37] ============================================================
+[2026-03-08 04:29:37]  Figures:     results/figures/{png,svg}/
+[2026-03-08 04:29:37]  Checkpoints: results/checkpoints/default/
+[2026-03-08 04:29:37]  Logs:        results/logs/consolidate_default_20260308_040238/
+[2026-03-08 04:29:37] ============================================================
