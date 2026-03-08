@@ -123,7 +123,7 @@ htcl:
 # Single closed-form Taylor correction; no step size (Eq. 12).
 oneshot:
   lambda_htcl: 100.0
-  fisher_samples: 5000
+  fisher_samples: 20000
   filtered_buffer_size: 50_000
 
 # --- Multi-Round Iterative Consolidation (Section 4, Algorithm 1) ---
@@ -132,10 +132,11 @@ oneshot:
 iterative:
   lambda_htcl: 100.0
   eta: 0.9            # eta_0 (initial step size)
-  gamma: 0.5          # step-size decay per round
-  num_rounds: 3        # K rounds
-  fisher_samples: 5000
+  gamma: 0.9          # step-size decay per round (slower for K=10)
+  num_rounds: 10       # K rounds
+  fisher_samples: 20000
   filtered_buffer_size: 50_000
+  recompute_fisher: false  # compute Fisher once, take K steps with cached F
 
 # --- Hybrid Consolidation (Section 5, Algorithm 2) ---
 # Phase 1: Multi-round joint Taylor consolidation (Algorithm 1).
@@ -144,10 +145,11 @@ hybrid:
   # Phase 1 (Joint Taylor) settings
   lambda_htcl: 100.0
   eta: 0.9            # eta_0
-  gamma: 0.5          # step-size decay per round
-  num_rounds: 3        # K rounds
+  gamma: 0.9          # step-size decay per round (slower for K=10)
+  num_rounds: 10       # K rounds
+  recompute_fisher: false  # compute Fisher once, take K steps with cached F
   # Phase 2 (KD refinement) settings
-  kd_epochs: 25
+  kd_epochs: 50
   kd_lr: 2.5e-5
   temperature: 2.0
   kd_batch_size: 64
