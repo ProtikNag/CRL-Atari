@@ -1,0 +1,590 @@
+[2026-03-08 00:52:56] ============================================================
+[2026-03-08 00:52:56]  CRL-Atari  Consolidation Pipeline
+[2026-03-08 00:52:56] ============================================================
+[2026-03-08 00:52:56]  Tag:    default
+[2026-03-08 00:52:56]  Config: configs/base.yaml
+[2026-03-08 00:52:56]  Debug:  off
+[2026-03-08 00:52:56]  Device: auto
+[2026-03-08 00:52:56]  Log:    results/logs/consolidate_default_20260308_005256
+[2026-03-08 00:52:56] ============================================================
+[2026-03-08 00:52:56] ---- Step 1/3: Consolidation ----
+[2026-03-08 00:52:58] --- Knowledge Distillation: checkpoint exists, SKIPPING ---
+[2026-03-08 00:52:58] --- One-Shot Joint Consolidation ---
+[2026-03-08 00:52:58] START: 01b_oneshot
+[2026-03-08 00:52:58] CMD: python scripts/consolidate.py --method oneshot --config configs/base.yaml --tag default
+[2026-03-08 00:53:25] INFO - Consolidation method: oneshot
+[2026-03-08 00:53:25] INFO - Device: cuda
+[2026-03-08 00:53:25] INFO - Debug: False
+[2026-03-08 00:53:25] INFO - Tag: default
+[2026-03-08 00:53:25] INFO - Config: configs/base.yaml
+[2026-03-08 00:53:25] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 00:53:26] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 00:53:26] INFO - One-Shot config: lambda=100.0, eta=0.9, fisher_samples=5000
+[2026-03-08 00:53:26] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 01:00:38] INFO - Loaded 3 expert models in 432.6s.
+[2026-03-08 01:00:38] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 01:00:38] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 01:00:38] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 01:00:38] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-08 01:00:50] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:01:02] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:01:13] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:01:13] INFO - Initialising global model at ensemble-mean anchor (Definition 3.1)...
+[2026-03-08 01:01:13] INFO - Starting One-Shot Joint Consolidation (lambda=100.0, N=3)...
+[2026-03-08 01:01:13] INFO -   Computing Fisher/gradient for Pong at anchor position...
+[2026-03-08 01:02:13] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.1503, mean=0.000003, std=0.000373, nonzero=7.0%
+[2026-03-08 01:02:13] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138616, max=0.1503
+[2026-03-08 01:02:13] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.012773, max=0.1472
+[2026-03-08 01:02:13] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.010305, max=0.0898
+[2026-03-08 01:02:13] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000387, max=0.0175
+[2026-03-08 01:02:13] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000344, max=0.0252
+[2026-03-08 01:02:13] INFO -   Computing Fisher/gradient for Breakout at anchor position...
+[2026-03-08 01:03:12] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1913, mean=0.000002, std=0.000314, nonzero=18.4%
+[2026-03-08 01:03:12] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124994, max=0.1913
+[2026-03-08 01:03:12] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.004490, max=0.0874
+[2026-03-08 01:03:12] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.003993, max=0.0395
+[2026-03-08 01:03:12] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.002875, max=0.0304
+[2026-03-08 01:03:12] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000346, max=0.0221
+[2026-03-08 01:03:12] INFO -   Computing Fisher/gradient for SpaceInvaders at anchor position...
+[2026-03-08 01:04:11] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.1473, mean=0.000002, std=0.000302, nonzero=26.7%
+[2026-03-08 01:04:11] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138693, max=0.1473
+[2026-03-08 01:04:11] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.006830, max=0.1213
+[2026-03-08 01:04:11] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.005403, max=0.0616
+[2026-03-08 01:04:11] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.003708, max=0.0408
+[2026-03-08 01:04:11] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000463, max=0.0250
+[2026-03-08 01:04:11] INFO - HTCL: Fisher (cumulative) after averaged | global min=0.000000, max=0.1630, mean=0.000002, std=0.000307, nonzero=26.2%
+[2026-03-08 01:04:11] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.134101, max=0.1630
+[2026-03-08 01:04:11] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.008031, max=0.0830
+[2026-03-08 01:04:11] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.006002, max=0.0567
+[2026-03-08 01:04:11] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.002843, max=0.0275
+[2026-03-08 01:04:11] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000350, max=0.0176
+[2026-03-08 01:04:11] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:04:11] INFO -   Averaged Fisher computed | effective lambda = 100.0000
+[2026-03-08 01:04:11] INFO -   One-shot update_norm = 0.8298
+[2026-03-08 01:04:11] INFO - One-Shot Joint Consolidation complete.
+[2026-03-08 01:04:12] INFO - One-Shot model saved to results/checkpoints/default/consolidated_oneshot.pt
+[2026-03-08 01:04:12] INFO - HTCL: Fisher log saved to results/checkpoints/default/oneshot_fisher_log.json
+[2026-03-08 01:04:12] INFO - Consolidated model param norm: 38.6424
+[2026-03-08 01:04:12] INFO - Total consolidation time (oneshot): 646.6s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 01:04:16] DONE: 01b_oneshot
+
+[2026-03-08 01:04:16] --- Multi-Round Iterative Consolidation ---
+[2026-03-08 01:04:16] START: 01c_iterative
+[2026-03-08 01:04:16] CMD: python scripts/consolidate.py --method iterative --config configs/base.yaml --tag default
+[2026-03-08 01:04:22] INFO - Consolidation method: iterative
+[2026-03-08 01:04:22] INFO - Device: cuda
+[2026-03-08 01:04:22] INFO - Debug: False
+[2026-03-08 01:04:22] INFO - Tag: default
+[2026-03-08 01:04:22] INFO - Config: configs/base.yaml
+[2026-03-08 01:04:22] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 01:04:22] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 01:04:22] INFO - Iterative config: lambda=100.0, eta_0=0.9, gamma=0.5, num_rounds=3, fisher_samples=5000
+[2026-03-08 01:04:22] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 01:11:39] INFO - Loaded 3 expert models in 437.0s.
+[2026-03-08 01:11:39] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 01:11:39] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 01:11:39] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 01:11:39] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-08 01:11:50] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:12:02] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:12:13] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:12:13] INFO - Initialising global model at ensemble-mean anchor (Algorithm 1, line 1)...
+[2026-03-08 01:12:13] INFO - Starting Multi-Round Joint Consolidation (lambda=100.0, eta_0=0.9, gamma=0.5, K=3, N=3)...
+[2026-03-08 01:12:13] INFO - 
+--- Round 1/3 (eta_k=0.900000) ---
+[2026-03-08 01:12:13] INFO -   [Pong] Computing Fisher/gradient at current global position...
+[2026-03-08 01:13:12] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.1503, mean=0.000003, std=0.000373, nonzero=7.0%
+[2026-03-08 01:13:12] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138616, max=0.1503
+[2026-03-08 01:13:12] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.012773, max=0.1472
+[2026-03-08 01:13:12] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.010305, max=0.0898
+[2026-03-08 01:13:12] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000387, max=0.0175
+[2026-03-08 01:13:12] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000344, max=0.0252
+[2026-03-08 01:13:12] INFO -   [Breakout] Computing Fisher/gradient at current global position...
+[2026-03-08 01:14:09] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1913, mean=0.000002, std=0.000314, nonzero=18.4%
+[2026-03-08 01:14:09] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124994, max=0.1913
+[2026-03-08 01:14:09] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.004490, max=0.0874
+[2026-03-08 01:14:09] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.003993, max=0.0395
+[2026-03-08 01:14:09] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.002875, max=0.0304
+[2026-03-08 01:14:09] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000346, max=0.0221
+[2026-03-08 01:14:09] INFO -   [SpaceInvaders] Computing Fisher/gradient at current global position...
+[2026-03-08 01:15:06] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.1473, mean=0.000002, std=0.000302, nonzero=26.7%
+[2026-03-08 01:15:06] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138693, max=0.1473
+[2026-03-08 01:15:06] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.006830, max=0.1213
+[2026-03-08 01:15:06] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.005403, max=0.0616
+[2026-03-08 01:15:06] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.003708, max=0.0408
+[2026-03-08 01:15:06] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000463, max=0.0250
+[2026-03-08 01:15:06] INFO - HTCL: Fisher (cumulative) after round_0 | global min=0.000000, max=0.1630, mean=0.000002, std=0.000307, nonzero=26.2%
+[2026-03-08 01:15:06] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.134101, max=0.1630
+[2026-03-08 01:15:06] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.008031, max=0.0830
+[2026-03-08 01:15:06] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.006002, max=0.0567
+[2026-03-08 01:15:06] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.002843, max=0.0275
+[2026-03-08 01:15:06] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000350, max=0.0176
+[2026-03-08 01:15:06] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:15:06] INFO -   Round 1 | effective lambda = 100.0000
+[2026-03-08 01:15:06] INFO -   Round 1 | update_norm=0.7468 | max_drift=57.4535
+[2026-03-08 01:15:06] INFO - 
+--- Round 2/3 (eta_k=0.450000) ---
+[2026-03-08 01:15:06] INFO -   [Pong] Computing Fisher/gradient at current global position...
+[2026-03-08 01:16:03] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.2266, mean=0.000007, std=0.000562, nonzero=6.9%
+[2026-03-08 01:16:03] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138727, max=0.1507
+[2026-03-08 01:16:03] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.016397, max=0.2266
+[2026-03-08 01:16:03] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.011808, max=0.0728
+[2026-03-08 01:16:03] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.006906, max=0.2158
+[2026-03-08 01:16:03] INFO -   Top-5 Fisher layer: features.0.weight | mean=0.000849, max=0.0309
+[2026-03-08 01:16:03] INFO -   [Breakout] Computing Fisher/gradient at current global position...
+[2026-03-08 01:17:05] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1950, mean=0.000002, std=0.000318, nonzero=17.6%
+[2026-03-08 01:17:05] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124954, max=0.1950
+[2026-03-08 01:17:05] INFO -   Top-2 Fisher layer: features.0.bias | mean=0.004283, max=0.0369
+[2026-03-08 01:17:05] INFO -   Top-3 Fisher layer: features.4.bias | mean=0.003995, max=0.0810
+[2026-03-08 01:17:05] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.003138, max=0.0248
+[2026-03-08 01:17:05] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000393, max=0.0268
+[2026-03-08 01:17:05] INFO -   [SpaceInvaders] Computing Fisher/gradient at current global position...
+[2026-03-08 01:18:05] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.1806, mean=0.000002, std=0.000346, nonzero=26.2%
+[2026-03-08 01:18:05] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138778, max=0.1491
+[2026-03-08 01:18:05] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.010410, max=0.1806
+[2026-03-08 01:18:05] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.007799, max=0.0892
+[2026-03-08 01:18:05] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.005749, max=0.0717
+[2026-03-08 01:18:05] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000482, max=0.0307
+[2026-03-08 01:18:05] INFO - HTCL: Fisher (cumulative) after round_1 | global min=0.000000, max=0.1649, mean=0.000004, std=0.000358, nonzero=25.7%
+[2026-03-08 01:18:05] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.134153, max=0.1649
+[2026-03-08 01:18:05] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.010267, max=0.1193
+[2026-03-08 01:18:05] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.006898, max=0.0549
+[2026-03-08 01:18:05] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.006329, max=0.0840
+[2026-03-08 01:18:05] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000401, max=0.0215
+[2026-03-08 01:18:05] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:18:05] INFO -   Round 2 | effective lambda = 100.0000
+[2026-03-08 01:18:05] INFO -   Round 2 | update_norm=0.1495 | max_drift=57.4570
+[2026-03-08 01:18:05] INFO - 
+--- Round 3/3 (eta_k=0.225000) ---
+[2026-03-08 01:18:05] INFO -   [Pong] Computing Fisher/gradient at current global position...
+[2026-03-08 01:19:06] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.2457, mean=0.000003, std=0.000470, nonzero=6.6%
+[2026-03-08 01:19:06] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138708, max=0.1528
+[2026-03-08 01:19:06] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.018673, max=0.2457
+[2026-03-08 01:19:06] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.015544, max=0.1044
+[2026-03-08 01:19:06] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000483, max=0.0233
+[2026-03-08 01:19:06] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000357, max=0.0320
+[2026-03-08 01:19:06] INFO -   [Breakout] Computing Fisher/gradient at current global position...
+[2026-03-08 01:20:11] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1936, mean=0.000002, std=0.000315, nonzero=17.7%
+[2026-03-08 01:20:11] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124968, max=0.1936
+[2026-03-08 01:20:11] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.004457, max=0.0810
+[2026-03-08 01:20:11] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.003969, max=0.0284
+[2026-03-08 01:20:11] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.003285, max=0.0377
+[2026-03-08 01:20:11] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000407, max=0.0275
+[2026-03-08 01:20:11] INFO -   [SpaceInvaders] Computing Fisher/gradient at current global position...
+[2026-03-08 01:21:11] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.2065, mean=0.000002, std=0.000366, nonzero=26.3%
+[2026-03-08 01:21:11] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138783, max=0.1497
+[2026-03-08 01:21:11] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.011729, max=0.2065
+[2026-03-08 01:21:11] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.008844, max=0.1025
+[2026-03-08 01:21:11] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.006478, max=0.0816
+[2026-03-08 01:21:11] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000506, max=0.0320
+[2026-03-08 01:21:11] INFO - HTCL: Fisher (cumulative) after round_2 | global min=0.000000, max=0.1654, mean=0.000002, std=0.000346, nonzero=25.7%
+[2026-03-08 01:21:11] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.134153, max=0.1654
+[2026-03-08 01:21:11] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.011620, max=0.1332
+[2026-03-08 01:21:11] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.008664, max=0.0707
+[2026-03-08 01:21:11] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.004121, max=0.0424
+[2026-03-08 01:21:11] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000415, max=0.0222
+[2026-03-08 01:21:11] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:21:11] INFO -   Round 3 | effective lambda = 100.0000
+[2026-03-08 01:21:11] INFO -   Round 3 | update_norm=0.0523 | max_drift=57.4588
+[2026-03-08 01:21:11] INFO - Multi-Round Joint Consolidation complete.
+[2026-03-08 01:21:11] INFO - Iterative model saved to results/checkpoints/default/consolidated_iterative.pt
+[2026-03-08 01:21:11] INFO - Iterative: Fisher log saved to results/checkpoints/default/iterative_fisher_log.json
+[2026-03-08 01:21:11] INFO - Consolidated model param norm: 38.6527
+[2026-03-08 01:21:11] INFO - Total consolidation time (iterative): 1008.7s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 01:21:14] DONE: 01c_iterative
+
+[2026-03-08 01:21:14] --- Hybrid Consolidation (HTCL + KD) ---
+[2026-03-08 01:21:14] START: 01d_hybrid
+[2026-03-08 01:21:14] CMD: python scripts/consolidate.py --method hybrid --config configs/base.yaml --tag default
+[2026-03-08 01:21:20] INFO - Consolidation method: hybrid
+[2026-03-08 01:21:20] INFO - Device: cuda
+[2026-03-08 01:21:20] INFO - Debug: False
+[2026-03-08 01:21:20] INFO - Tag: default
+[2026-03-08 01:21:20] INFO - Config: configs/base.yaml
+[2026-03-08 01:21:20] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 01:21:20] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 01:21:20] INFO - Hybrid config: lambda=100.0, K=3 | KD epochs=25, lr=2.5e-05
+[2026-03-08 01:21:20] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 01:28:18] INFO - Loaded 3 expert models in 418.0s.
+[2026-03-08 01:28:18] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 01:28:18] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 01:28:18] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 01:28:18] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-08 01:28:28] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:28:40] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:28:48] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-08 01:28:48] INFO - Initialising global model at ensemble-mean anchor (Algorithm 2, line 2)...
+[2026-03-08 01:28:48] INFO - Starting Hybrid Consolidation (Phase 1: Joint Taylor K=3, lambda=100.0, eta_0=0.9, gamma=0.5 | Phase 2: KD epochs=25, lr=2.5e-05)...
+[2026-03-08 01:28:48] INFO - 
+============================================
+ Phase 1: Multi-Round Joint Taylor
+============================================
+[2026-03-08 01:28:48] INFO - 
+--- Round 1/3 (eta_k=0.900000) ---
+[2026-03-08 01:28:48] INFO -   [Pong] Fisher/gradient at current position...
+[2026-03-08 01:29:50] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.1503, mean=0.000003, std=0.000373, nonzero=7.0%
+[2026-03-08 01:29:50] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138616, max=0.1503
+[2026-03-08 01:29:50] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.012773, max=0.1472
+[2026-03-08 01:29:50] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.010305, max=0.0898
+[2026-03-08 01:29:50] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000387, max=0.0175
+[2026-03-08 01:29:50] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000344, max=0.0252
+[2026-03-08 01:29:50] INFO -   [Breakout] Fisher/gradient at current position...
+[2026-03-08 01:30:54] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1913, mean=0.000002, std=0.000314, nonzero=18.4%
+[2026-03-08 01:30:54] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124994, max=0.1913
+[2026-03-08 01:30:54] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.004490, max=0.0874
+[2026-03-08 01:30:54] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.003993, max=0.0395
+[2026-03-08 01:30:54] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.002875, max=0.0304
+[2026-03-08 01:30:54] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000346, max=0.0221
+[2026-03-08 01:30:54] INFO -   [SpaceInvaders] Fisher/gradient at current position...
+[2026-03-08 01:31:59] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.1473, mean=0.000002, std=0.000302, nonzero=26.7%
+[2026-03-08 01:31:59] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138693, max=0.1473
+[2026-03-08 01:31:59] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.006830, max=0.1213
+[2026-03-08 01:31:59] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.005403, max=0.0616
+[2026-03-08 01:31:59] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.003708, max=0.0408
+[2026-03-08 01:31:59] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000463, max=0.0250
+[2026-03-08 01:31:59] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:31:59] INFO -   Round 1 | update_norm=0.7468 | effective lambda=100.0000
+[2026-03-08 01:31:59] INFO - 
+--- Round 2/3 (eta_k=0.450000) ---
+[2026-03-08 01:31:59] INFO -   [Pong] Fisher/gradient at current position...
+[2026-03-08 01:33:03] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.2266, mean=0.000007, std=0.000562, nonzero=6.9%
+[2026-03-08 01:33:03] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138727, max=0.1507
+[2026-03-08 01:33:03] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.016397, max=0.2266
+[2026-03-08 01:33:03] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.011808, max=0.0728
+[2026-03-08 01:33:03] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.006906, max=0.2158
+[2026-03-08 01:33:03] INFO -   Top-5 Fisher layer: features.0.weight | mean=0.000849, max=0.0309
+[2026-03-08 01:33:03] INFO -   [Breakout] Fisher/gradient at current position...
+[2026-03-08 01:34:07] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1950, mean=0.000002, std=0.000318, nonzero=17.6%
+[2026-03-08 01:34:07] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124954, max=0.1950
+[2026-03-08 01:34:07] INFO -   Top-2 Fisher layer: features.0.bias | mean=0.004283, max=0.0369
+[2026-03-08 01:34:07] INFO -   Top-3 Fisher layer: features.4.bias | mean=0.003995, max=0.0810
+[2026-03-08 01:34:07] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.003138, max=0.0248
+[2026-03-08 01:34:07] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000393, max=0.0268
+[2026-03-08 01:34:07] INFO -   [SpaceInvaders] Fisher/gradient at current position...
+[2026-03-08 01:35:05] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.1806, mean=0.000002, std=0.000346, nonzero=26.2%
+[2026-03-08 01:35:05] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138778, max=0.1491
+[2026-03-08 01:35:05] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.010410, max=0.1806
+[2026-03-08 01:35:05] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.007799, max=0.0892
+[2026-03-08 01:35:05] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.005749, max=0.0717
+[2026-03-08 01:35:05] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000482, max=0.0307
+[2026-03-08 01:35:05] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:35:05] INFO -   Round 2 | update_norm=0.1495 | effective lambda=100.0000
+[2026-03-08 01:35:05] INFO - 
+--- Round 3/3 (eta_k=0.225000) ---
+[2026-03-08 01:35:05] INFO -   [Pong] Fisher/gradient at current position...
+[2026-03-08 01:36:02] INFO - HTCL: Fisher (task) after Pong | global min=0.000000, max=0.2457, mean=0.000003, std=0.000470, nonzero=6.6%
+[2026-03-08 01:36:02] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138708, max=0.1528
+[2026-03-08 01:36:02] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.018673, max=0.2457
+[2026-03-08 01:36:02] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.015544, max=0.1044
+[2026-03-08 01:36:02] INFO -   Top-4 Fisher layer: fc.2.weight | mean=0.000483, max=0.0233
+[2026-03-08 01:36:02] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000357, max=0.0320
+[2026-03-08 01:36:02] INFO -   [Breakout] Fisher/gradient at current position...
+[2026-03-08 01:36:58] INFO - HTCL: Fisher (task) after Breakout | global min=0.000000, max=0.1936, mean=0.000002, std=0.000315, nonzero=17.7%
+[2026-03-08 01:36:58] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.124968, max=0.1936
+[2026-03-08 01:36:58] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.004457, max=0.0810
+[2026-03-08 01:36:58] INFO -   Top-3 Fisher layer: features.2.bias | mean=0.003969, max=0.0284
+[2026-03-08 01:36:58] INFO -   Top-4 Fisher layer: features.0.bias | mean=0.003285, max=0.0377
+[2026-03-08 01:36:58] INFO -   Top-5 Fisher layer: fc.2.weight | mean=0.000407, max=0.0275
+[2026-03-08 01:36:58] INFO -   [SpaceInvaders] Fisher/gradient at current position...
+[2026-03-08 01:37:53] INFO - HTCL: Fisher (task) after SpaceInvaders | global min=0.000000, max=0.2065, mean=0.000002, std=0.000366, nonzero=26.3%
+[2026-03-08 01:37:53] INFO -   Top-1 Fisher layer: fc.2.bias | mean=0.138783, max=0.1497
+[2026-03-08 01:37:53] INFO -   Top-2 Fisher layer: features.4.bias | mean=0.011729, max=0.2065
+[2026-03-08 01:37:53] INFO -   Top-3 Fisher layer: features.0.bias | mean=0.008844, max=0.1025
+[2026-03-08 01:37:53] INFO -   Top-4 Fisher layer: features.2.bias | mean=0.006478, max=0.0816
+[2026-03-08 01:37:53] INFO -   Top-5 Fisher layer: fc.0.bias | mean=0.000506, max=0.0320
+[2026-03-08 01:37:53] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 100.000000
+[2026-03-08 01:37:53] INFO -   Round 3 | update_norm=0.0523 | effective lambda=100.0000
+[2026-03-08 01:37:53] INFO -   Phase 1 complete | param norm = 38.6527
+[2026-03-08 01:37:53] INFO - 
+============================================
+ Phase 2: Knowledge Distillation Refinement
+============================================
+[2026-03-08 01:38:54] INFO -   KD epoch 2/25 | avg loss: 0.029127
+[2026-03-08 01:39:00] INFO -   KD epoch 4/25 | avg loss: 0.092343
+[2026-03-08 01:39:06] INFO -   KD epoch 6/25 | avg loss: 0.037911
+[2026-03-08 01:39:12] INFO -   KD epoch 8/25 | avg loss: 0.018906
+[2026-03-08 01:39:19] INFO -   KD epoch 10/25 | avg loss: 0.014073
+[2026-03-08 01:39:26] INFO -   KD epoch 12/25 | avg loss: 0.011988
+[2026-03-08 01:39:33] INFO -   KD epoch 14/25 | avg loss: 0.011018
+[2026-03-08 01:39:40] INFO -   KD epoch 16/25 | avg loss: 0.008637
+[2026-03-08 01:39:46] INFO -   KD epoch 18/25 | avg loss: 0.008235
+[2026-03-08 01:39:53] INFO -   KD epoch 20/25 | avg loss: 0.007422
+[2026-03-08 01:40:00] INFO -   KD epoch 22/25 | avg loss: 0.007076
+[2026-03-08 01:40:07] INFO -   KD epoch 24/25 | avg loss: 0.006321
+[2026-03-08 01:40:11] INFO -   Phase 2 complete | param norm = 39.9507
+[2026-03-08 01:40:11] INFO - Hybrid Consolidation complete.
+[2026-03-08 01:40:11] INFO - Hybrid model saved to results/checkpoints/default/consolidated_hybrid.pt
+[2026-03-08 01:40:11] INFO - Hybrid: Fisher log saved to results/checkpoints/default/hybrid_fisher_log.json
+[2026-03-08 01:40:11] INFO - Consolidated model param norm: 39.9507
+[2026-03-08 01:40:11] INFO - Total consolidation time (hybrid): 1130.7s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 01:40:16] DONE: 01d_hybrid
+
+[2026-03-08 01:40:16] ---- Step 2/3: Evaluation ----
+[2026-03-08 01:40:16] Evaluating expert: Breakout
+[2026-03-08 01:40:16] START: 02_eval_expert_Breakout
+[2026-03-08 01:40:16] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_Breakout_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_Breakout_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_Breakout_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=386.00 +/- 35.02 (min=316.0, max=405.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=51.00 +/- 29.73 (min=0.0, max=80.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_expert_Breakout_default.json
+[2026-03-08 01:47:16] DONE: 02_eval_expert_Breakout
+
+[2026-03-08 01:47:16] Evaluating expert: Pong
+[2026-03-08 01:47:16] START: 02_eval_expert_Pong
+[2026-03-08 01:47:16] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_Pong_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_Pong_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_Pong_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=131.33 +/- 84.92 (min=40.0, max=275.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=19.93 +/- 0.89 (min=19.0, max=21.0)
+
+Results saved to results/figures/eval_expert_Pong_default.json
+[2026-03-08 01:49:22] DONE: 02_eval_expert_Pong
+
+[2026-03-08 01:49:22] Evaluating expert: SpaceInvaders
+[2026-03-08 01:49:22] START: 02_eval_expert_SpaceInvaders
+[2026-03-08 01:49:22] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_SpaceInvaders_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_SpaceInvaders_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_SpaceInvaders_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=1151.83 +/- 115.24 (min=995.0, max=1320.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_expert_SpaceInvaders_default.json
+[2026-03-08 01:51:06] DONE: 02_eval_expert_SpaceInvaders
+
+[2026-03-08 01:51:06] Evaluating consolidated: distillation
+[2026-03-08 01:51:06] START: 02_eval_distillation
+[2026-03-08 01:51:06] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_distillation.pt --all-tasks --config configs/base.yaml --output results/figures/eval_distillation_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_distillation.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=3.00 +/- 3.00 (min=0.0, max=6.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=97.17 +/- 45.07 (min=45.0, max=175.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-10.20 +/- 13.60 (min=-21.0, max=18.0)
+
+Results saved to results/figures/eval_distillation_default.json
+[2026-03-08 01:52:42] DONE: 02_eval_distillation
+
+[2026-03-08 01:52:42] Evaluating consolidated: oneshot
+[2026-03-08 01:52:42] START: 02_eval_oneshot
+[2026-03-08 01:52:42] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_oneshot.pt --all-tasks --config configs/base.yaml --output results/figures/eval_oneshot_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_oneshot.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_oneshot_default.json
+[2026-03-08 01:53:41] DONE: 02_eval_oneshot
+
+[2026-03-08 01:53:41] Evaluating consolidated: iterative
+[2026-03-08 01:53:41] START: 02_eval_iterative
+[2026-03-08 01:53:41] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_iterative.pt --all-tasks --config configs/base.yaml --output results/figures/eval_iterative_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_iterative.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_iterative_default.json
+[2026-03-08 01:54:40] DONE: 02_eval_iterative
+
+[2026-03-08 01:54:40] Evaluating consolidated: hybrid
+[2026-03-08 01:54:40] START: 02_eval_hybrid
+[2026-03-08 01:54:40] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_hybrid.pt --all-tasks --config configs/base.yaml --output results/figures/eval_hybrid_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_hybrid.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=5.00 +/- 3.44 (min=1.0, max=10.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=211.67 +/- 140.47 (min=60.0, max=425.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_hybrid_default.json
+[2026-03-08 01:55:47] DONE: 02_eval_hybrid
+
+[2026-03-08 01:55:47] ---- Step 3/3: Comparison Plots ----
+[2026-03-08 01:55:47] START: 03_compare
+[2026-03-08 01:55:47] CMD: python scripts/compare.py --config configs/base.yaml --tag default
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+
+============================================================
+Evaluating Expert Models
+============================================================
+  Expert (Breakout): 386.00 ± 35.02
+  Expert (SpaceInvaders): 1151.83 ± 115.24
+  Expert (Pong): 19.93 ± 0.89
+
+============================================================
+Evaluating Distillation Consolidated Model
+============================================================
+  Distillation on Breakout: 3.20 ± 2.99
+  Distillation on SpaceInvaders: 88.33 ± 32.49
+  Distillation on Pong: -6.43 ± 16.58
+
+============================================================
+Evaluating One-Shot Consolidated Model
+============================================================
+  One-Shot on Breakout: 2.40 ± 3.98
+  One-Shot on SpaceInvaders: 0.00 ± 0.00
+  One-Shot on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Iterative Consolidated Model
+============================================================
+  Iterative on Breakout: 3.00 ± 4.24
+  Iterative on SpaceInvaders: 0.00 ± 0.00
+  Iterative on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Hybrid Consolidated Model
+============================================================
+  Hybrid on Breakout: 5.47 ± 3.34
+  Hybrid on SpaceInvaders: 211.00 ± 154.19
+  Hybrid on Pong: -21.00 ± 0.00
+
+Generating comparison visualisations...
+  Saved → results/figures/{png,svg}/comparison_bar
+  Saved → results/figures/{png,svg}/performance_heatmap
+  Saved → results/figures/{png,svg}/reward_distributions
+  Saved → results/figures/{png,svg}/radar_chart
+  Saved → results/figures/{png,svg}/forgetting_gap
+  Saved → results/figures/{png,svg}/relative_performance
+  Saved → results/figures/{png,svg}/summary_table
+
+Generating lambda grid search plots...
+  Saved → results/figures/{png,svg}/lambda_selection_curve
+  Saved → results/figures/{png,svg}/lambda_kl_lam0.1
+  Saved → results/figures/{png,svg}/lambda_kl_lam1.0
+  Saved → results/figures/{png,svg}/lambda_kl_lam10.0
+  Saved → results/figures/{png,svg}/lambda_kl_lam100.0
+  Saved → results/figures/{png,svg}/lambda_kl_lam1000.0
+  Lambda grid plots saved to results/figures
+  Saved → results/figures/{png,svg}/lambda_summary_table
+  Lambda summary table saved to results/figures
+
+Computing KL divergence between consolidated and expert policies...
+  Saved → results/figures/{png,svg}/kl_divergence_comparison
+  KL divergence plot saved to results/figures
+
+Numerical results saved to results/figures/comparison_results_default.json
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Method                     Breakout   SpaceInvaders           Pong        Average
+--------------------------------------------------------------------------------
+Expert                       386.00        1151.83          19.93         519.26
+Distillation                   3.20          88.33          -6.43          28.37
+One-Shot                       2.40           0.00         -21.00          -6.20
+Iterative                      3.00           0.00         -21.00          -6.00
+Hybrid                         5.47         211.00         -21.00          65.16
+================================================================================
+
+Retention (% of Expert):
+  Distillation            0.8%     7.7%   -32.3%  (avg -7.9%)
+  One-Shot                0.6%     0.0%  -105.4%  (avg -34.9%)
+  Iterative               0.8%     0.0%  -105.4%  (avg -34.9%)
+  Hybrid                  1.4%    18.3%  -105.4%  (avg -28.5%)
+
+LaTeX table:
+\begin{tabular}{lcccc}
+\toprule
+Method & Breakout & SpaceInvaders & Pong & Average \\
+\midrule
+Expert & 386.0 & 1151.8 & 19.9 & 519.3 \\
+Distillation & 3.2 & 88.3 & -6.4 & 28.4 \\
+One-Shot & 2.4 & 0.0 & -21.0 & -6.2 \\
+Iterative & 3.0 & 0.0 & -21.0 & -6.0 \\
+Hybrid & 5.5 & 211.0 & -21.0 & 65.2 \\
+\bottomrule
+\end{tabular}
+[2026-03-08 03:08:22] DONE: 03_compare
+
+[2026-03-08 03:08:22] ============================================================
+[2026-03-08 03:08:22]  Pipeline Complete!
+[2026-03-08 03:08:22] ============================================================
+[2026-03-08 03:08:22]  Figures:     results/figures/{png,svg}/
+[2026-03-08 03:08:22]  Checkpoints: results/checkpoints/default/
+[2026-03-08 03:08:22]  Logs:        results/logs/consolidate_default_20260308_005256/
+[2026-03-08 03:08:22] ============================================================
