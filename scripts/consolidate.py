@@ -497,13 +497,15 @@ def main():
             f"eta_0={it_cfg.get('eta', 0.9)}, "
             f"gamma={it_cfg.get('gamma', 0.5)}, "
             f"num_rounds={it_cfg.get('num_rounds', it_cfg.get('num_passes', 3))}, "
-            f"fisher_samples={it_cfg.get('fisher_samples', 5000)}"
+            f"fisher_samples={it_cfg.get('fisher_samples', 5000)}, "
+            f"recompute_fisher={it_cfg.get('recompute_fisher', False)}"
         )
     elif args.method == "hybrid":
         hy_cfg = config.get("hybrid", {})
         logger.info(
             f"Hybrid config: lambda={hy_cfg.get('lambda_htcl', 100.0)}, "
-            f"K={hy_cfg.get('num_rounds', hy_cfg.get('num_passes', 3))} | "
+            f"K={hy_cfg.get('num_rounds', hy_cfg.get('num_passes', 3))}, "
+            f"recompute_fisher={hy_cfg.get('recompute_fisher', False)} | "
             f"KD epochs={hy_cfg.get('kd_epochs', 25)}, "
             f"lr={hy_cfg.get('kd_lr', 2.5e-5)}"
         )
