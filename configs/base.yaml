@@ -118,34 +118,34 @@ htcl:
   # tasks jointly and apply one final Taylor update toward mean expert.
   joint_refinement: true
 
-# --- One-Shot Joint Consolidation ---
-# All experts are considered simultaneously at the initial global position.
-# A single averaged Taylor correction is applied (no sequential bias).
+# --- One-Shot Joint Consolidation (Section 3, Theorem 3.4) ---
+# All experts considered simultaneously at the ensemble-mean anchor.
+# Single closed-form Taylor correction; no step size (Eq. 12).
 oneshot:
   lambda_htcl: 100.0
-  eta: 0.9
   fisher_samples: 5000
   filtered_buffer_size: 50_000
 
-# --- Multi-Round Iterative Consolidation ---
-# Sequential Taylor updates over experts, repeated for multiple passes.
+# --- Multi-Round Iterative Consolidation (Section 4, Algorithm 1) ---
+# Each round: averaged Fisher/gradient over all experts jointly, single
+# combined Taylor update.  Step size decays as eta_0 * gamma^k.
 iterative:
   lambda_htcl: 100.0
-  eta: 0.9
+  eta: 0.9            # eta_0 (initial step size)
+  gamma: 0.5          # step-size decay per round
+  num_rounds: 3        # K rounds
   fisher_samples: 5000
   filtered_buffer_size: 50_000
-  num_passes: 3
-  joint_refinement: true
 
-# --- Hybrid Consolidation (HTCL + Knowledge Distillation) ---
-# Phase 1: Multi-round iterative HTCL for a principled starting point.
-# Phase 2: KD refinement to recover subtle policy details.
+# --- Hybrid Consolidation (Section 5, Algorithm 2) ---
+# Phase 1: Multi-round joint Taylor consolidation (Algorithm 1).
+# Phase 2: KD refinement (Theorem 5.2 warm-start advantage).
 hybrid:
-  # Phase 1 (HTCL) settings
+  # Phase 1 (Joint Taylor) settings
   lambda_htcl: 100.0
-  eta: 0.9
-  num_passes: 3
-  joint_refinement: true
+  eta: 0.9            # eta_0
+  gamma: 0.5          # step-size decay per round
+  num_rounds: 3        # K rounds
   # Phase 2 (KD refinement) settings
   kd_epochs: 25
   kd_lr: 2.5e-5

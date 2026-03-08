@@ -288,18 +288,32 @@ def run_distillation(config, expert_results, device, logger, tag):
     return consolidated
 
 
+def _ensemble_mean_sd(
+    expert_results: list, device: str,
+) -> dict:
+    """Compute ensemble-mean state dict  w_bar = (1/N) Sigma_i w_e^(i).
+
+    Paper Definition 3.1 / Algorithm 1 line 1 / Algorithm 2 line 2.
+    """
+    sds = [r["policy_state_dict"] for r in expert_results]
+    keys = sds[0].keys()
+    return {
+        k: torch.stack([sd[k].float().to(device) for sd in sds]).mean(dim=0)
+        for k in keys
+    }
+
+
 def run_oneshot(
     config, expert_results, filtered_states_list, expert_models,
     device, logger, tag,
 ):
     """Run One-Shot Joint Consolidation."""
     global_model = build_model(config, device)
-    first_sd = expert_results[0]["policy_state_dict"]
-    init_sd = {k: v.float().to(device) for k, v in first_sd.items()}
+    init_sd = _ensemble_mean_sd(expert_results, device)
     global_model.load_state_dict(init_sd)
     logger.info(
-        f"Initialising global model from first expert "
-        f"({expert_results[0]['game_name']})..."
+        "Initialising global model at ensemble-mean anchor "
+        "(Definition 3.1)..."
     )
 
     consolidator = OneShotConsolidator(config, device=device, logger=logger)
@@ -329,12 +343,11 @@ def run_iterative(
 ):
     """Run Multi-Round Iterative Consolidation."""
     global_model = build_model(config, device)
-    first_sd = expert_results[0]["policy_state_dict"]
-    init_sd = {k: v.float().to(device) for k, v in first_sd.items()}
+    init_sd = _ensemble_mean_sd(expert_results, device)
     global_model.load_state_dict(init_sd)
     logger.info(
-        f"Initialising global model from first expert "
-        f"({expert_results[0]['game_name']})..."
+        "Initialising global model at ensemble-mean anchor "
+        "(Algorithm 1, line 1)..."
     )
 
     consolidator = IterativeConsolidator(config, device=device, logger=logger)
@@ -364,12 +377,11 @@ def run_hybrid(
 ):
     """Run Hybrid Consolidation (HTCL + KD)."""
     global_model = build_model(config, device)
-    first_sd = expert_results[0]["policy_state_dict"]
-    init_sd = {k: v.float().to(device) for k, v in first_sd.items()}
+    init_sd = _ensemble_mean_sd(expert_results, device)
     global_model.load_state_dict(init_sd)
     logger.info(
-        f"Initialising global model from first expert "
-        f"({expert_results[0]['game_name']})..."
+        "Initialising global model at ensemble-mean anchor "
+        "(Algorithm 2, line 2)..."
     )
 
     # Apply debug override for hybrid KD epochs
@@ -482,16 +494,16 @@ def main():
         it_cfg = config.get("iterative", config.get("htcl", {}))
         logger.info(
             f"Iterative config: lambda={it_cfg.get('lambda_htcl', 100.0)}, "
-            f"eta={it_cfg.get('eta', 0.9)}, "
-            f"num_passes={it_cfg.get('num_passes', 3)}, "
-            f"joint_refinement={it_cfg.get('joint_refinement', True)}, "
+            f"eta_0={it_cfg.get('eta', 0.9)}, "
+            f"gamma={it_cfg.get('gamma', 0.5)}, "
+            f"num_rounds={it_cfg.get('num_rounds', it_cfg.get('num_passes', 3))}, "
             f"fisher_samples={it_cfg.get('fisher_samples', 5000)}"
         )
     elif args.method == "hybrid":
         hy_cfg = config.get("hybrid", {})
         logger.info(
-            f"Hybrid config: HTCL lambda={hy_cfg.get('lambda_htcl', 100.0)}, "
-            f"passes={hy_cfg.get('num_passes', 3)} | "
+            f"Hybrid config: lambda={hy_cfg.get('lambda_htcl', 100.0)}, "
+            f"K={hy_cfg.get('num_rounds', hy_cfg.get('num_passes', 3))} | "
             f"KD epochs={hy_cfg.get('kd_epochs', 25)}, "
             f"lr={hy_cfg.get('kd_lr', 2.5e-5)}"
         )

@@ -1,22 +1,28 @@
 """
-Multi-Round Iterative Consolidation.
+Multi-Round Iterative Consolidation  (CRL.pdf, Section 4, Algorithm 1).
 
-Experts are absorbed one at a time.  After each task, the cumulative Fisher
-grows, protecting previously integrated knowledge from being overwritten by
-later tasks.  The full sequence is repeated for *num_passes* rounds with
-geometrically decaying step size so that corrections shrink and converge.
-A final joint-refinement step re-computes Fisher/gradient over all tasks
-simultaneously and applies a small correction.
+Each round re-expands around the current global model, computes averaged
+Fisher and gradient over ALL experts jointly, then applies a single
+combined Taylor correction.  Repeating for K rounds progressively reduces
+the effective drift (Theorem 4.2).
 
-Algorithm (single pass):
-    1.  Initialise w_global from first expert; compute Fisher_1, g_1.
-    2.  For k = 2 … K:
-            a.  Compute Fisher_k, g_k at w_global.
-            b.  H ← H + Fisher_k ;  g ← g + g_k.
-            c.  δ_k = w_expert_k − w_global  (action-masked for heads).
-            d.  w_global ← w_global + η (H + λI)^{−1} (λ δ_k − g).
-    3.  (Repeat for additional passes with η ← η × decay.)
-    4.  Joint refinement: fresh Fisher/gradient over all tasks, small step.
+Algorithm 1 (Paper):
+    1.  w_g^(0) <- (1/N) Sigma_i w_e^(i)              [ensemble-mean anchor]
+    2.  for k = 0, ..., K-1 do
+    3.      w_bar <- w_g^(k)                            [re-expand]
+    4.      for i = 1, ..., N do
+    5.          g_i <- grad L_i(w_bar)
+    6.          H_i <- Hessian L_i(w_bar)  (diagonal Fisher)
+    7.          Delta_d^(i) <- w_e^(i) - w_bar          [action-masked]
+    8.      end for
+    9.      g_bar <- (1/N) Sigma_i g_i;  H_bar <- (1/N) Sigma_i H_i
+   10.      d* <- weighted mean of Delta_d^(i)
+   11.      u* <- (H_bar + lambda_bar I)^{-1} [lambda_bar d* - g_bar]
+   12.      w_g^(k+1) <- w_bar + eta_k u*
+   13.  end for
+   14.  return w_g^(K)
+
+Step-size schedule: eta_k = eta_0 * gamma^k  (Algorithm 2, line 13).
 """
 
 import copy
@@ -32,11 +38,12 @@ from src.utils.logger import Logger
 
 
 class IterativeConsolidator:
-    """Multi-Round Iterative Consolidation via sequential Taylor updates.
+    """Multi-Round Joint Iterative Consolidation (Algorithm 1).
 
-    Wraps the HTCLConsolidator's multi-pass consolidation loop with a
-    fixed lambda (no grid search).  Provides a clean interface matching
-    the other consolidation methods.
+    In each round, Fisher and gradient are computed for every expert at
+    the current global model position, averaged, and a single joint
+    Taylor update is applied.  This is fundamentally different from
+    sequential HTCL, where each expert is integrated one-at-a-time.
 
     Args:
         config: Configuration dictionary.
@@ -55,14 +62,15 @@ class IterativeConsolidator:
         self.logger = logger
 
         iter_cfg = config.get("iterative", config.get("htcl", {}))
-        self.lambda_val = iter_cfg.get("lambda_htcl", 100.0)
-        self.eta = iter_cfg.get("eta", 0.9)
-        self.num_passes = iter_cfg.get("num_passes", 3)
-        self.joint_refinement = iter_cfg.get("joint_refinement", True)
-        self.fisher_samples = iter_cfg.get("fisher_samples", 5000)
+        self.lambda_val: float = iter_cfg.get("lambda_htcl", 100.0)
+        self.eta_0: float = iter_cfg.get("eta", 0.9)
+        self.gamma: float = iter_cfg.get("gamma", 0.5)
+        self.num_rounds: int = iter_cfg.get("num_rounds", iter_cfg.get("num_passes", 3))
+        self.fisher_samples: int = iter_cfg.get("fisher_samples", 5000)
 
-        # Internal HTCL instance provides the full iterative loop
+        # Internal HTCL helper for Fisher/gradient computation
         self._htcl = HTCLConsolidator(config, device=device, logger=logger)
+        self.fisher_log: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -76,58 +84,214 @@ class IterativeConsolidator:
         expert_models: Optional[List[DQNNetwork]] = None,
         lambda_override: Optional[float] = None,
     ) -> DQNNetwork:
-        """Run multi-round iterative consolidation.
+        """Run multi-round joint iterative consolidation (Algorithm 1).
+
+        The caller MUST initialize *global_model* to the ensemble mean
+        w_bar = (1/N) Sigma_i w_e^(i)  before calling this method.
 
         Args:
-            global_model: Global model initialised from first expert.
+            global_model: Model initialised at the ensemble-mean anchor.
             expert_results: List of expert result dicts (all tasks).
             filtered_states_list: High-confidence states per expert.
-            expert_models: Frozen expert DQN models (for KL logging).
+            expert_models: Frozen expert DQN models (unused, for API compat).
             lambda_override: Override default lambda.
 
         Returns:
             Consolidated DQNNetwork.
         """
         lam = lambda_override if lambda_override is not None else self.lambda_val
+        num_tasks = len(expert_results)
+        K = self.num_rounds
 
         if self.logger:
             self.logger.info(
-                f"Starting Multi-Round Iterative Consolidation "
-                f"(λ={lam}, η={self.eta}, passes={self.num_passes}, "
-                f"joint_refine={self.joint_refinement})..."
+                f"Starting Multi-Round Joint Consolidation "
+                f"(lambda={lam}, eta_0={self.eta_0}, gamma={self.gamma}, "
+                f"K={K}, N={num_tasks})..."
             )
 
-        # Fresh consolidator for this run (so cumulative Fisher is clean)
-        consolidator = HTCLConsolidator(
-            self.config, device=self.device, logger=self.logger,
-        )
+        consolidated = copy.deepcopy(global_model).to(self.device)
+        global_sd = {
+            name: param.clone()
+            for name, param in consolidated.state_dict().items()
+        }
 
-        # Register first task (initialise cumulative Fisher/gradient)
-        model = copy.deepcopy(global_model).to(self.device)
+        # Pre-compute head-layer names for action masking (Remark 7.1)
+        n_actions = consolidated.unified_action_dim
+        head_weight_names = {
+            n for n in global_sd
+            if n.endswith(".weight")
+            and global_sd[n].shape[0] == n_actions
+            and ("fc." in n or "advantage_stream." in n)
+        }
+        head_bias_names = {
+            n for n in global_sd
+            if n.endswith(".bias")
+            and global_sd[n].shape[0] == n_actions
+            and ("fc." in n or "advantage_stream." in n)
+        }
+        head_names = head_weight_names | head_bias_names
 
-        consolidator.register_initial_task(
-            model,
-            expert_results[0]["valid_actions"],
-            filtered_states_list[0],
-            expert_results[0]["game_name"],
-        )
+        # ── Multi-round loop (Algorithm 1, lines 2-13) ──
+        for round_k in range(K):
+            eta_k = self.eta_0 * (self.gamma ** round_k)
 
-        # Run multi-pass sequential consolidation with joint refinement
-        consolidated = consolidator.consolidate(
-            model,
-            expert_results,
-            filtered_states_list=filtered_states_list,
-            expert_models=expert_models,
-            lambda_override=lam,
-            num_passes=self.num_passes,
-            joint_refinement=self.joint_refinement,
-        )
+            if self.logger:
+                self.logger.info(
+                    f"\n--- Round {round_k + 1}/{K} "
+                    f"(eta_k={eta_k:.6f}) ---"
+                )
+
+            # Step 3: Re-expand around current global position
+            consolidated.load_state_dict(global_sd)
+
+            # Steps 4-8: Compute per-task Fisher/gradient, then average
+            avg_fisher: Dict[str, torch.Tensor] = {
+                name: torch.zeros_like(param)
+                for name, param in consolidated.named_parameters()
+                if param.requires_grad
+            }
+            avg_gradient: Dict[str, torch.Tensor] = {
+                name: torch.zeros_like(param)
+                for name, param in consolidated.named_parameters()
+                if param.requires_grad
+            }
+
+            for task_idx, (result, filt_states) in enumerate(
+                zip(expert_results, filtered_states_list)
+            ):
+                game_name = result["game_name"]
+                valid_actions = result["valid_actions"]
+
+                if self.logger:
+                    self.logger.info(
+                        f"  [{game_name}] Computing Fisher/gradient "
+                        f"at current global position..."
+                    )
+
+                consolidated.load_state_dict(global_sd)
+
+                task_fisher = self._htcl.compute_diagonal_fisher(
+                    consolidated, valid_actions, states=filt_states,
+                )
+                task_gradient = self._htcl.compute_gradient(
+                    consolidated, valid_actions, states=filt_states,
+                )
+
+                for name in task_fisher:
+                    avg_fisher[name] += task_fisher[name] / num_tasks
+                    avg_gradient[name] += task_gradient[name] / num_tasks
+
+                # Log per-task Fisher
+                self._htcl._log_fisher_statistics(
+                    task_fisher, round_k * num_tasks + task_idx, game_name,
+                    prefix="iterative", is_cumulative=False,
+                )
+
+            # Log averaged Fisher
+            self._htcl._log_fisher_statistics(
+                avg_fisher, round_k * num_tasks + num_tasks, f"round_{round_k}",
+                prefix="iterative", is_cumulative=True,
+            )
+
+            # Step 9 (implicit): F_bar and g_bar are in avg_fisher, avg_gradient
+
+            # Validate lambda (Lemma 3.7)
+            eff_lam = self._htcl._ensure_lambda_constraint(avg_fisher, lam)
+
+            if self.logger:
+                self.logger.info(
+                    f"  Round {round_k + 1} | "
+                    f"effective lambda = {eff_lam:.4f}"
+                )
+
+            # Steps 10-11: Compute per-expert corrections and average
+            # (equivalent to using d* when lambda is uniform)
+            avg_correction: Dict[str, torch.Tensor] = {
+                name: torch.zeros_like(param)
+                for name, param in consolidated.named_parameters()
+                if param.requires_grad
+            }
+
+            for result in expert_results:
+                local_sd = result["policy_state_dict"]
+                game_name = result["game_name"]
+                task_valid = result["valid_actions"]
+                unused = (
+                    sorted(set(range(n_actions)) - set(task_valid))
+                    if len(task_valid) < n_actions
+                    else []
+                )
+
+                for name in avg_fisher:
+                    w_global = global_sd[name].to(self.device)
+                    w_local = local_sd[name].to(self.device)
+                    h_diag = avg_fisher[name]
+                    g = avg_gradient[name]
+
+                    delta_d = w_local - w_global
+
+                    # Action mask (Remark 7.1)
+                    if unused and name in head_names:
+                        if name in head_weight_names:
+                            delta_d[unused, :] = 0.0
+                        else:
+                            delta_d[unused] = 0.0
+
+                    numerator = eff_lam * delta_d - g
+                    denominator = h_diag + eff_lam
+                    correction = numerator / (denominator + 1e-8)
+                    avg_correction[name] += correction / num_tasks
+
+            # Step 12: w_g^(k+1) = w_bar + eta_k * u*
+            updated_sd = {}
+            for name in global_sd:
+                if name in avg_correction:
+                    updated_sd[name] = (
+                        global_sd[name].to(self.device)
+                        + eta_k * avg_correction[name]
+                    )
+                else:
+                    updated_sd[name] = global_sd[name]
+
+            # Log round diagnostics
+            if self.logger:
+                update_norm = sum(
+                    (updated_sd[n] - global_sd[n].to(self.device))
+                    .norm().item() ** 2
+                    for n in avg_fisher
+                ) ** 0.5
+                drift = max(
+                    sum(
+                        (result["policy_state_dict"][n].to(self.device)
+                         - global_sd[n].to(self.device))
+                        .norm().item() ** 2
+                        for n in avg_fisher
+                    ) ** 0.5
+                    for result in expert_results
+                )
+                self.logger.info(
+                    f"  Round {round_k + 1} | update_norm={update_norm:.4f} "
+                    f"| max_drift={drift:.4f}"
+                )
+                self.logger.log_scalar(
+                    "iterative/update_norm", update_norm, round_k,
+                )
+                self.logger.log_scalar(
+                    "iterative/max_drift", drift, round_k,
+                )
+
+            global_sd = updated_sd
+
+        # Load final weights
+        consolidated.load_state_dict(global_sd)
+        consolidated.eval()
+
+        # Store fisher log from helper
+        self.fisher_log = self._htcl.fisher_log
 
         if self.logger:
-            self.logger.info("Multi-Round Iterative Consolidation complete.")
-
-        # Keep fisher log reference
-        self._fisher_log = consolidator.fisher_log
+            self.logger.info("Multi-Round Joint Consolidation complete.")
 
         return consolidated
 
@@ -135,6 +299,6 @@ class IterativeConsolidator:
         """Save Fisher statistics log."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            json.dump(getattr(self, "_fisher_log", []), f, indent=2)
+            json.dump(self.fisher_log, f, indent=2)
         if self.logger:
             self.logger.info(f"Iterative: Fisher log saved to {path}")
