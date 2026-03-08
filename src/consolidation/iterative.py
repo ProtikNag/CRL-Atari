@@ -61,6 +61,9 @@ class IterativeConsolidator:
 
         iter_cfg = config.get("iterative", config.get("htcl", {}))
         self.lambda_val: float = iter_cfg.get("lambda_htcl", 100.0)
+        self.lambda_per_task: Dict[str, float] = iter_cfg.get(
+            "lambda_per_task", {},
+        )
         self.eta_0: float = iter_cfg.get("eta", 0.9)
         self.gamma: float = iter_cfg.get("gamma", 0.5)
         self.num_rounds: int = iter_cfg.get("num_rounds", iter_cfg.get("num_passes", 3))
@@ -156,10 +159,18 @@ class IterativeConsolidator:
         num_tasks = len(expert_results)
         K = self.num_rounds
 
+        # Resolve per-task lambdas
+        task_lambdas = []
+        for r in expert_results:
+            gname = r["game_name"]
+            task_lambdas.append(self.lambda_per_task.get(gname, lam))
+        lambda_bar = sum(task_lambdas) / num_tasks
+
         if self.logger:
             self.logger.info(
                 f"Starting Multi-Round Joint Consolidation "
-                f"(lambda={lam}, eta_0={self.eta_0}, gamma={self.gamma}, "
+                f"(lambda_bar={lambda_bar:.1f}, per_task={dict(zip([r['game_name'] for r in expert_results], task_lambdas))}, "
+                f"eta_0={self.eta_0}, gamma={self.gamma}, "
                 f"K={K}, N={num_tasks}, "
                 f"recompute_fisher={self.recompute_fisher})..."
             )
@@ -205,7 +216,7 @@ class IterativeConsolidator:
                 )
             )
             cached_lam = self._htcl._ensure_lambda_constraint(
-                cached_fisher, lam,
+                cached_fisher, lambda_bar,
             )
 
         # ── Multi-round loop (Algorithm 1, lines 2-13) ──
@@ -228,7 +239,7 @@ class IterativeConsolidator:
                     )
                 )
                 eff_lam = self._htcl._ensure_lambda_constraint(
-                    avg_fisher, lam,
+                    avg_fisher, lambda_bar,
                 )
             else:
                 avg_fisher = cached_fisher
@@ -249,10 +260,11 @@ class IterativeConsolidator:
                 if param.requires_grad
             }
 
-            for result in expert_results:
+            for task_idx, result in enumerate(expert_results):
                 local_sd = result["policy_state_dict"]
                 game_name = result["game_name"]
                 task_valid = result["valid_actions"]
+                lam_i = task_lambdas[task_idx]
                 unused = (
                     sorted(set(range(n_actions)) - set(task_valid))
                     if len(task_valid) < n_actions
@@ -274,7 +286,7 @@ class IterativeConsolidator:
                         else:
                             delta_d[unused] = 0.0
 
-                    numerator = eff_lam * delta_d - g
+                    numerator = lam_i * delta_d - g
                     denominator = h_diag + eff_lam
                     correction = numerator / (denominator + 1e-8)
                     avg_correction[name] += correction / num_tasks
