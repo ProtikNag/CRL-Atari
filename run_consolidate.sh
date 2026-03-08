@@ -147,41 +147,25 @@ CKPT_DIR="results/checkpoints/${TAG}"
 if [ -z "${SKIP_CONSOLIDATE}" ]; then
     log_msg "---- Step 1/3: Consolidation ----"
 
-    # 1a. Knowledge Distillation (skip if checkpoint already exists)
-    if [ -f "${CKPT_DIR}/consolidated_distillation.pt" ]; then
-        log_msg "--- Knowledge Distillation: checkpoint exists, SKIPPING ---"
-    else
-        log_msg "--- Knowledge Distillation ---"
-        run_step "01a_distillation" \
-            python scripts/consolidate.py --method distillation ${COMMON_ARGS}
-    fi
+    # 1a. Knowledge Distillation
+    log_msg "--- Knowledge Distillation ---"
+    run_step "01a_distillation" \
+        python scripts/consolidate.py --method distillation ${COMMON_ARGS}
 
     # 1b. One-Shot Joint Consolidation
-    if [ -f "${CKPT_DIR}/consolidated_oneshot.pt" ]; then
-        log_msg "--- One-Shot: checkpoint exists, SKIPPING ---"
-    else
-        log_msg "--- One-Shot Joint Consolidation ---"
-        run_step "01b_oneshot" \
-            python scripts/consolidate.py --method oneshot ${COMMON_ARGS}
-    fi
+    log_msg "--- One-Shot Joint Consolidation ---"
+    run_step "01b_oneshot" \
+        python scripts/consolidate.py --method oneshot ${COMMON_ARGS}
 
     # 1c. Multi-Round Iterative Consolidation
-    if [ -f "${CKPT_DIR}/consolidated_iterative.pt" ]; then
-        log_msg "--- Iterative: checkpoint exists, SKIPPING ---"
-    else
-        log_msg "--- Multi-Round Iterative Consolidation ---"
-        run_step "01c_iterative" \
-            python scripts/consolidate.py --method iterative ${COMMON_ARGS}
-    fi
+    log_msg "--- Multi-Round Iterative Consolidation ---"
+    run_step "01c_iterative" \
+        python scripts/consolidate.py --method iterative ${COMMON_ARGS}
 
     # 1d. Hybrid Consolidation (HTCL + KD)
-    if [ -f "${CKPT_DIR}/consolidated_hybrid.pt" ]; then
-        log_msg "--- Hybrid: checkpoint exists, SKIPPING ---"
-    else
-        log_msg "--- Hybrid Consolidation (HTCL + KD) ---"
-        run_step "01d_hybrid" \
-            python scripts/consolidate.py --method hybrid ${COMMON_ARGS}
-    fi
+    log_msg "--- Hybrid Consolidation (HTCL + KD) ---"
+    run_step "01d_hybrid" \
+        python scripts/consolidate.py --method hybrid ${COMMON_ARGS}
 else
     log_msg "Skipping consolidation (--skip-consolidate)."
 fi
