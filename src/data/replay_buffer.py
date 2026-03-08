@@ -181,7 +181,7 @@ class ReplayBuffer:
         # Sort them descending for determinism (optional but nice for logging)
         top_indices = top_indices[np.argsort(gaps[top_indices])[::-1]]
 
-        states = (
-            torch.from_numpy(self.states[top_indices]).float().to(self.device) / 255.0
-        )
+        # Return on CPU to avoid OOM when multiple experts are filtered.
+        # Downstream consumers (Fisher / gradient) batch-transfer to GPU.
+        states = torch.from_numpy(self.states[top_indices]).float() / 255.0
         return states
