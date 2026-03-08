@@ -16,8 +16,6 @@ start with advantage phi, reducing KD epochs by a factor ~1 - 1/phi.
 """
 
 import copy
-import json
-import os
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -87,7 +85,6 @@ class HybridConsolidator:
 
         # Internal HTCL helper
         self._htcl = HTCLConsolidator(config, device=device, logger=logger)
-        self.fisher_log: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Fisher / gradient helper
@@ -137,17 +134,6 @@ class HybridConsolidator:
             for name in task_fisher:
                 avg_fisher[name] += task_fisher[name] / num_tasks
                 avg_gradient[name] += task_gradient[name] / num_tasks
-
-            self._htcl._log_fisher_statistics(
-                task_fisher, round_idx * num_tasks + task_idx, game_name,
-                prefix="hybrid_phase1", is_cumulative=False,
-            )
-
-        self._htcl._log_fisher_statistics(
-            avg_fisher, round_idx * num_tasks + num_tasks,
-            f"round_{round_idx}",
-            prefix="hybrid_phase1", is_cumulative=True,
-        )
 
         return avg_fisher, avg_gradient
 
@@ -341,9 +327,6 @@ class HybridConsolidator:
                 f"  Phase 1 complete | param norm = {p1_norm:.4f}"
             )
 
-        # Store fisher log
-        self.fisher_log = self._htcl.fisher_log
-
         # ══════════════════════════════════════════════════════════════
         # Phase 2: Knowledge Distillation refinement (Algorithm 2, lines 16-19)
         # L_KD = (1/N) Sigma_i T^2 D_KL(sigma(Q_e(B_i)/T) || sigma(Q_g(B_i)/T))
@@ -457,11 +440,3 @@ class HybridConsolidator:
             self.logger.info("Hybrid Consolidation complete.")
 
         return student
-
-    def save_fisher_log(self, path: str) -> None:
-        """Save Fisher statistics log from Phase 1."""
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self.fisher_log, f, indent=2)
-        if self.logger:
-            self.logger.info(f"Hybrid: Fisher log saved to {path}")

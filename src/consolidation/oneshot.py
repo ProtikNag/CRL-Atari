@@ -22,8 +22,6 @@ simplifies to a Newton step:  u* = -(F_bar + lambda I)^{-1} g_bar.
 """
 
 import copy
-import json
-import os
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -147,18 +145,6 @@ class OneShotConsolidator:
                 avg_fisher[name] += task_fisher[name] / num_tasks
                 avg_gradient[name] += task_gradient[name] / num_tasks
 
-            # Log per-task Fisher statistics
-            self._htcl._log_fisher_statistics(
-                task_fisher, task_idx, game_name,
-                prefix="oneshot", is_cumulative=False,
-            )
-
-        # Log averaged Fisher statistics
-        self._htcl._log_fisher_statistics(
-            avg_fisher, num_tasks, "averaged",
-            prefix="oneshot", is_cumulative=True,
-        )
-
         # ── Step 2: Validate lambda (Lemma 3.7) ──
         # With diagonal Fisher (F_bar >= 0), any lambda > 0 suffices.
         eff_lam = self._htcl._ensure_lambda_constraint(avg_fisher, lam)
@@ -252,7 +238,3 @@ class OneShotConsolidator:
             self.logger.info("One-Shot Joint Consolidation complete.")
 
         return consolidated
-
-    def save_fisher_log(self, path: str) -> None:
-        """Delegate to internal HTCL consolidator."""
-        self._htcl.save_fisher_log(path)

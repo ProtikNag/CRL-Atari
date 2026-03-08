@@ -329,11 +329,6 @@ def run_oneshot(
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
     logger.info(f"One-Shot model saved to {save_path}")
-
-    fisher_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, "oneshot_fisher_log.json",
-    )
-    consolidator.save_fisher_log(fisher_path)
     return consolidated
 
 
@@ -363,11 +358,6 @@ def run_iterative(
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
     logger.info(f"Iterative model saved to {save_path}")
-
-    fisher_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, "iterative_fisher_log.json",
-    )
-    consolidator.save_fisher_log(fisher_path)
     return consolidated
 
 
@@ -403,11 +393,6 @@ def run_hybrid(
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
     logger.info(f"Hybrid model saved to {save_path}")
-
-    fisher_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, "hybrid_fisher_log.json",
-    )
-    consolidator.save_fisher_log(fisher_path)
     return consolidated
 
 

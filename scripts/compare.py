@@ -2,14 +2,13 @@
 Comprehensive comparison of Expert vs Consolidated models.
 
 Generates publication-quality visualisations from multiple perspectives:
-  1. Grouped bar chart  — mean reward per game per method
-  2. Performance retention heatmap  — % of expert score retained
-  3. Box plots  — per-episode reward distributions
-  4. Radar / spider chart  — normalised multi-game profile
-  5. Forgetting analysis  — reward gap (expert − consolidated)
-  6. Relative performance bar  — % of expert per game
+  1. Grouped bar chart  -- mean reward per game per method
+  2. Performance retention heatmap  -- % of expert score retained
+  3. Box plots  -- per-episode reward distributions
+  4. Radar / spider chart  -- normalised multi-game profile
+  5. Forgetting analysis  -- reward gap (expert - consolidated)
+  6. Relative performance bar  -- % of expert per game
   7. Summary statistics table (also LaTeX-ready)
-  8. Fisher / Hessian diagnostic plots (if htcl_fisher_log.json exists)
 
 Usage:
     python scripts/compare.py [--debug] [--tag TAG]
@@ -483,165 +482,6 @@ def plot_summary_table(
     _save_fig(fig, figure_dir, filename)
 
 
-# ── Plot 8: Lambda grid search results ──────────────────────────────────────
-
-def plot_lambda_grid(
-    grid_log_path: str, figure_dir: str,
-) -> None:
-    """Visualise HTCL lambda grid search results.
-
-    Generates:
-        (a) Lambda selection curve — avg KL vs log(lambda)
-        (b) Per-task KL bar chart for each lambda candidate
-    """
-    if not os.path.exists(grid_log_path):
-        print(f"  Lambda grid log not found at {grid_log_path}, skipping.")
-        return
-
-    with open(grid_log_path, "r") as f:
-        grid_data = json.load(f)
-
-    if not grid_data:
-        print("  Lambda grid log is empty, skipping.")
-        return
-
-    lambdas = [e["lambda"] for e in grid_data]
-    avg_kls = [e["avg_kl"] for e in grid_data]
-    games = list(grid_data[0]["kl_per_task"].keys())
-
-    # ── (a) Lambda selection curve ──
-    fig, ax = plt.subplots(figsize=(6, 4))
-
-    # Average KL
-    ax.plot(
-        lambdas, avg_kls,
-        color=PALETTE["pastel_purple"], marker="o",
-        markeredgecolor=EDGE_COLOR, markeredgewidth=1.0,
-        markersize=8, linewidth=2.5, label="Avg KL",
-        zorder=5,
-    )
-
-    # Per-task KL curves
-    for gi, game in enumerate(games):
-        task_kls = [e["kl_per_task"][game] for e in grid_data]
-        ax.plot(
-            lambdas, task_kls,
-            color=COLORS[gi % len(COLORS)], marker=MARKERS[gi % len(MARKERS)],
-            markeredgecolor=EDGE_COLOR, markeredgewidth=0.8,
-            markersize=6, linewidth=1.5, alpha=0.7, label=game,
-        )
-
-    # Mark best lambda
-    best_idx = int(np.argmin(avg_kls))
-    ax.axvline(
-        lambdas[best_idx], color=PALETTE["pastel_red"],
-        linestyle="--", linewidth=1.5, alpha=0.8,
-        label=f"Best λ={lambdas[best_idx]:.1f}",
-    )
-
-    ax.set_xscale("log")
-    ax.set_yscale("symlog", linthresh=1.0)
-    ax.set_xlabel("Lambda (λ)")
-    ax.set_ylabel("KL Divergence")
-    ax.set_title("HTCL Lambda Grid Search")
-    ax.legend(fontsize=9, loc="best")
-    _save_fig(fig, figure_dir, "lambda_selection_curve")
-
-    # ── (b) Per-lambda bar charts ──
-    for entry in grid_data:
-        lam = entry["lambda"]
-        kl_vals = [entry["kl_per_task"].get(g, 0) for g in games]
-
-        fig, ax = plt.subplots(figsize=(max(5, len(games) * 1.5), 4))
-        x = np.arange(len(games))
-        bars = ax.bar(
-            x, kl_vals,
-            color=[COLORS[i % len(COLORS)] for i in range(len(games))],
-            edgecolor=EDGE_COLOR, linewidth=1.2,
-        )
-        for bar_rect, val in zip(bars, kl_vals):
-            ax.text(
-                bar_rect.get_x() + bar_rect.get_width() / 2, val,
-                f"{val:.3f}", ha="center", va="bottom", fontsize=9,
-            )
-        ax.set_xticks(x)
-        ax.set_xticklabels(games)
-        ax.set_ylabel("KL(Expert ‖ Consolidated)")
-        ax.set_title(f"KL Divergence per Task — λ = {lam}")
-        _save_fig(fig, figure_dir, f"lambda_kl_lam{lam:.1f}")
-
-    print(f"  Lambda grid plots saved to {figure_dir}")
-
-    # ── (c) Summary table of all lambdas ──
-    _plot_lambda_summary_table(grid_data, games, figure_dir)
-
-
-def _plot_lambda_summary_table(
-    grid_data: list, games: list, figure_dir: str,
-) -> None:
-    """Render a summary table figure comparing all lambda candidates.
-
-    Rows = lambda values, columns = per-task KL + avg KL.
-    Best lambda is highlighted.
-    """
-    lambdas = [e["lambda"] for e in grid_data]
-    avg_kls = [e["avg_kl"] for e in grid_data]
-    best_idx = int(np.argmin(avg_kls))
-
-    col_labels = games + ["Avg KL"]
-    row_labels = [f"λ = {lam}" for lam in lambdas]
-
-    cell_text = []
-    for entry in grid_data:
-        row = []
-        for g in games:
-            kl_val = entry["kl_per_task"].get(g, 0)
-            row.append(f"{kl_val:.4f}")
-        row.append(f"{entry['avg_kl']:.4f}")
-        cell_text.append(row)
-
-    fig, ax = plt.subplots(
-        figsize=(max(7, len(col_labels) * 2), max(2, len(lambdas) * 0.7 + 1)),
-    )
-    ax.axis("off")
-
-    table = ax.table(
-        cellText=cell_text,
-        rowLabels=row_labels,
-        colLabels=col_labels,
-        loc="center",
-        cellLoc="center",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1.0, 1.6)
-
-    # Style header row
-    for j in range(len(col_labels)):
-        table[0, j].set_facecolor(PALETTE["pastel_blue"])
-        table[0, j].set_edgecolor(EDGE_COLOR)
-
-    # Highlight best lambda row
-    for j in range(len(col_labels)):
-        table[best_idx + 1, j].set_facecolor(PALETTE["pastel_green"])
-    # Also highlight best row label
-    table[best_idx + 1, -1].set_facecolor(PALETTE["pastel_green"])
-
-    # Style avg KL column
-    for i in range(len(lambdas)):
-        if i != best_idx:
-            table[i + 1, len(col_labels) - 1].set_facecolor(
-                PALETTE["pastel_yellow"]
-            )
-
-    ax.set_title(
-        f"Lambda Grid Search Summary (Best: λ = {lambdas[best_idx]})",
-        fontsize=13, pad=20,
-    )
-    _save_fig(fig, figure_dir, "lambda_summary_table")
-    print(f"  Lambda summary table saved to {figure_dir}")
-
-
 # ── Plot 10: KL divergence between consolidated and expert policies ─────────
 
 def plot_kl_divergence(
@@ -932,14 +772,6 @@ def main():
         plot_forgetting_gap(all_results, figure_dir, "forgetting_gap")
         plot_relative_bar(all_results, figure_dir, "relative_performance")
         plot_summary_table(all_results, figure_dir, "summary_table")
-
-    # Lambda grid search results (if they exist)
-    grid_path = os.path.join(checkpoint_dir, args.tag, "htcl_lambda_grid.json")
-    if os.path.exists(grid_path):
-        print("\nGenerating lambda grid search plots...")
-        plot_lambda_grid(grid_path, figure_dir)
-    else:
-        print("\nNo lambda grid search results found, skipping.")
 
     # KL divergence analysis
     print("\nComputing KL divergence between consolidated and expert policies...")

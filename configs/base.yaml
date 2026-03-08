@@ -148,9 +148,9 @@ hybrid:
   gamma: 0.9          # step-size decay per round (slower for K=10)
   num_rounds: 10       # K rounds
   recompute_fisher: false  # compute Fisher once, take K steps with cached F
-  # Phase 2 (KD refinement) settings
+  # Phase 2 (KD refinement) settings — must match distillation for fair comparison
   kd_epochs: 50
-  kd_lr: 2.5e-5
+  kd_lr: 5.0e-5
   temperature: 2.0
   kd_batch_size: 64
 
