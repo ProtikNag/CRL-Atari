@@ -1,21 +1,24 @@
 """
-One-Shot Joint Consolidation.
+One-Shot Joint Consolidation  (CRL.pdf, Section 3, Theorem 3.4).
 
 All experts are considered simultaneously: Fisher and gradient are computed
-over every task at the global model position, then a single averaged Taylor
-correction is applied.  Unlike the iterative approach, no task sees a
-different Fisher landscape than any other because every computation happens
-at the same w_global.
+at the ensemble-mean anchor, then a single joint Taylor correction is
+applied.
 
-Algorithm:
-    1.  Initialise w_global from the first expert.
-    2.  At w_global, compute Fisher_k and gradient_k for each task k.
-    3.  Form joint Fisher H = Σ_k Fisher_k  and  joint gradient g = Σ_k g_k.
-    4.  For each expert k:
-            δ_k = w_expert_k − w_global   (drift, action-masked for heads)
-            c_k = (H + λI)^{−1} (λ δ_k − g)
-    5.  Average correction  c = (1/K) Σ_k c_k.
-    6.  w_new = w_global + η · c.
+Algorithm  (Theorem 3.4  /  Remark 3.6  /  Eq. 12):
+    1.  Anchor:  w_bar = (1/N) Sigma_i w_e^(i).
+    2.  At w_bar, compute per-task Fisher F_i and gradient g_i.
+    3.  Average:  F_bar = (1/N) Sigma_i F_i,   g_bar = (1/N) Sigma_i g_i.
+    4.  Drift per expert:  Delta_d^(i) = w_e^(i) - w_bar  (action-masked
+        for head layers per Remark 7.1).
+    5.  Weighted drift centroid (uniform lambda):
+            d* = (1/N) Sigma_i Delta_d^(i).
+        NOTE: with anchor = mean, d* = 0 (Remark 3.6).
+    6.  Update:  u* = (F_bar + lambda I)^{-1} [lambda d* - g_bar].
+    7.  Result:  w_g = w_bar + u*   (no step-size for one-shot; Eq. 12).
+
+With uniform lambda and anchor = ensemble mean, d* = 0, so the update
+simplifies to a Newton step:  u* = -(F_bar + lambda I)^{-1} g_bar.
 """
 
 import copy
@@ -31,11 +34,14 @@ from src.utils.logger import Logger
 
 
 class OneShotConsolidator:
-    """One-Shot Joint Consolidation via second-order Taylor expansion.
+    """One-Shot Joint Consolidation (Theorem 3.4).
 
-    Computes Fisher and gradient jointly over all tasks at the initial
-    global model position, then applies a single averaged Taylor correction
-    toward every expert simultaneously.
+    Computes averaged Fisher and averaged gradient over all tasks at
+    the ensemble-mean anchor, then applies a single closed-form Taylor
+    correction.
+
+    The caller MUST initialize the global model to the ensemble mean
+    w_bar = (1/N) Sigma_i w_e^(i)  before calling ``consolidate()``.
 
     Args:
         config: Configuration dictionary.
@@ -54,11 +60,10 @@ class OneShotConsolidator:
         self.logger = logger
 
         oneshot_cfg = config.get("oneshot", config.get("htcl", {}))
-        self.lambda_val = oneshot_cfg.get("lambda_htcl", 100.0)
-        self.eta = oneshot_cfg.get("eta", 0.9)
-        self.fisher_samples = oneshot_cfg.get("fisher_samples", 5000)
+        self.lambda_val: float = oneshot_cfg.get("lambda_htcl", 100.0)
+        self.fisher_samples: int = oneshot_cfg.get("fisher_samples", 5000)
 
-        # Internal HTCL instance provides Fisher/gradient/Taylor helpers
+        # Internal HTCL instance provides Fisher/gradient/logging helpers
         self._htcl = HTCLConsolidator(config, device=device, logger=logger)
 
     # ------------------------------------------------------------------
@@ -73,24 +78,28 @@ class OneShotConsolidator:
         expert_models: Optional[List[DQNNetwork]] = None,
         lambda_override: Optional[float] = None,
     ) -> DQNNetwork:
-        """Run one-shot joint consolidation.
+        """Run one-shot joint consolidation (Theorem 3.4).
+
+        The caller MUST initialize *global_model* to the ensemble mean
+        w_bar = (1/N) Sigma_i w_e^(i)  before calling this method.
 
         Args:
-            global_model: Global model initialised from first expert.
+            global_model: Model initialised at the ensemble-mean anchor.
             expert_results: List of expert result dicts (all tasks).
             filtered_states_list: High-confidence states per expert.
-            expert_models: Frozen expert DQN models (for KL logging).
+            expert_models: Frozen expert DQN models (unused, for API compat).
             lambda_override: Override default lambda.
 
         Returns:
             Consolidated DQNNetwork.
         """
         lam = lambda_override if lambda_override is not None else self.lambda_val
+        num_tasks = len(expert_results)
 
         if self.logger:
             self.logger.info(
                 f"Starting One-Shot Joint Consolidation "
-                f"(λ={lam}, η={self.eta})..."
+                f"(lambda={lam}, N={num_tasks})..."
             )
 
         consolidated = copy.deepcopy(global_model).to(self.device)
@@ -99,13 +108,15 @@ class OneShotConsolidator:
             for name, param in consolidated.state_dict().items()
         }
 
-        # ── Step 1: Compute joint Fisher and joint gradient ──
-        joint_fisher: Dict[str, torch.Tensor] = {
+        # ── Step 1: Compute AVERAGED Fisher and gradient ──
+        # F_bar = (1/N) Sigma_i F_i,   g_bar = (1/N) Sigma_i g_i
+        # (paper Eq. 8)
+        avg_fisher: Dict[str, torch.Tensor] = {
             name: torch.zeros_like(param)
             for name, param in consolidated.named_parameters()
             if param.requires_grad
         }
-        joint_gradient: Dict[str, torch.Tensor] = {
+        avg_gradient: Dict[str, torch.Tensor] = {
             name: torch.zeros_like(param)
             for name, param in consolidated.named_parameters()
             if param.requires_grad
@@ -120,7 +131,7 @@ class OneShotConsolidator:
             if self.logger:
                 self.logger.info(
                     f"  Computing Fisher/gradient for {game_name} "
-                    f"at global position..."
+                    f"at anchor position..."
                 )
 
             consolidated.load_state_dict(global_sd)
@@ -133,8 +144,8 @@ class OneShotConsolidator:
             )
 
             for name in task_fisher:
-                joint_fisher[name] += task_fisher[name]
-                joint_gradient[name] += task_gradient[name]
+                avg_fisher[name] += task_fisher[name] / num_tasks
+                avg_gradient[name] += task_gradient[name] / num_tasks
 
             # Log per-task Fisher statistics
             self._htcl._log_fisher_statistics(
@@ -142,21 +153,25 @@ class OneShotConsolidator:
                 prefix="oneshot", is_cumulative=False,
             )
 
-        # Log joint Fisher statistics
+        # Log averaged Fisher statistics
         self._htcl._log_fisher_statistics(
-            joint_fisher, len(expert_results), "joint",
+            avg_fisher, num_tasks, "averaged",
             prefix="oneshot", is_cumulative=True,
         )
 
-        # ── Step 2: Validate lambda against joint Fisher ──
-        eff_lam = self._htcl._ensure_lambda_constraint(joint_fisher, lam)
+        # ── Step 2: Validate lambda (Lemma 3.7) ──
+        # With diagonal Fisher (F_bar >= 0), any lambda > 0 suffices.
+        eff_lam = self._htcl._ensure_lambda_constraint(avg_fisher, lam)
 
         if self.logger:
             self.logger.info(
-                f"  Joint Fisher computed | effective λ = {eff_lam:.4f}"
+                f"  Averaged Fisher computed | effective lambda = {eff_lam:.4f}"
             )
 
         # ── Step 3: Compute per-expert Taylor corrections and average ──
+        # Per-expert:  c_k = (F_bar + lambda I)^{-1} [lambda Delta_d^(k) - g_bar]
+        # Average:     (1/N) Sigma_k c_k = (F_bar + lambda I)^{-1} [lambda d* - g_bar]
+        #              which equals u* from Theorem 3.4.
         n_actions = consolidated.unified_action_dim
         head_weight_names = {
             n for n in global_sd
@@ -177,7 +192,6 @@ class OneShotConsolidator:
             for name, param in consolidated.named_parameters()
             if param.requires_grad
         }
-        num_tasks = len(expert_results)
 
         for result in expert_results:
             local_sd = result["policy_state_dict"]
@@ -189,15 +203,15 @@ class OneShotConsolidator:
                 else []
             )
 
-            for name in joint_fisher:
+            for name in avg_fisher:
                 w_global = global_sd[name].to(self.device)
                 w_local = local_sd[name].to(self.device)
-                h_diag = joint_fisher[name]
-                g = joint_gradient[name]
+                h_diag = avg_fisher[name]
+                g = avg_gradient[name]
 
                 delta_d = w_local - w_global
 
-                # Action mask: zero drift for untrained action rows
+                # Action mask (Remark 7.1): zero drift for untrained rows
                 if unused and name in head_names:
                     if name in head_weight_names:
                         delta_d[unused, :] = 0.0
@@ -209,16 +223,15 @@ class OneShotConsolidator:
                 correction = numerator / (denominator + 1e-8)
                 avg_correction[name] += correction / num_tasks
 
-        # ── Step 4: Apply averaged correction ──
+        # ── Step 4: w_g = w_bar + u*  (Eq. 12, no step size) ──
         updated_sd = {}
         for name in global_sd:
             if name in avg_correction:
                 updated_sd[name] = (
-                    global_sd[name].to(self.device)
-                    + self.eta * avg_correction[name]
+                    global_sd[name].to(self.device) + avg_correction[name]
                 )
             else:
-                # Non-trainable params: keep global
+                # Non-trainable params: keep anchor value
                 updated_sd[name] = global_sd[name]
 
         # Log update norm
@@ -226,7 +239,7 @@ class OneShotConsolidator:
             update_norm = sum(
                 (updated_sd[n] - global_sd[n].to(self.device))
                 .norm().item() ** 2
-                for n in joint_fisher
+                for n in avg_fisher
             ) ** 0.5
             self.logger.info(
                 f"  One-shot update_norm = {update_norm:.4f}"
