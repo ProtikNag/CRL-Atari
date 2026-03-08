@@ -134,7 +134,7 @@ class HTCLConsolidator:
 
         batch_size = 64
         for i in range(0, total, batch_size):
-            batch = states[i : i + batch_size]
+            batch = states[i : i + batch_size].to(self.device)
             model.zero_grad()
 
             q_values = model(batch)
@@ -209,7 +209,7 @@ class HTCLConsolidator:
 
         batch_size = 64
         for i in range(0, total, batch_size):
-            batch = states[i : i + batch_size]
+            batch = states[i : i + batch_size].to(self.device)
             model.zero_grad()
 
             q_values = model(batch)
