@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output job%j.%N.out
 #SBATCH --error job%j.%N.err
-#SBATCH -p dgx_aic
-########SBATCH -p gpu
+########SBATCH -p dgx_aic
+#SBATCH -p gpu
 
 # =============================================================================
 # CRL-Atari  Consolidation Pipeline

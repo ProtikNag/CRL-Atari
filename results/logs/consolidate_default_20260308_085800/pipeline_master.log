@@ -1,0 +1,500 @@
+[2026-03-08 08:58:00] ============================================================
+[2026-03-08 08:58:00]  CRL-Atari  Consolidation Pipeline
+[2026-03-08 08:58:00] ============================================================
+[2026-03-08 08:58:00]  Tag:    default
+[2026-03-08 08:58:00]  Config: configs/base.yaml
+[2026-03-08 08:58:00]  Debug:  off
+[2026-03-08 08:58:00]  Device: auto
+[2026-03-08 08:58:00]  Log:    results/logs/consolidate_default_20260308_085800
+[2026-03-08 08:58:00] ============================================================
+[2026-03-08 08:58:00] ---- Step 1/3: Consolidation ----
+[2026-03-08 08:58:00] --- Knowledge Distillation ---
+[2026-03-08 08:58:00] START: 01a_distillation
+[2026-03-08 08:58:00] CMD: python scripts/consolidate.py --method distillation --config configs/base.yaml --tag default
+[2026-03-08 08:58:04] INFO - Consolidation method: distillation
+[2026-03-08 08:58:04] INFO - Device: cuda
+[2026-03-08 08:58:04] INFO - Debug: False
+[2026-03-08 08:58:04] INFO - Tag: default
+[2026-03-08 08:58:04] INFO - Config: configs/base.yaml
+[2026-03-08 08:58:04] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 08:58:04] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 08:58:04] INFO - Distillation config: temperature=2.0, alpha=0.5, epochs=500, lr=5e-05, batch_size=64
+[2026-03-08 08:58:04] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 09:07:01] INFO - Loaded 3 expert models in 537.0s.
+[2026-03-08 09:07:01] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 09:07:01] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 09:07:01] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 09:07:01] INFO - Initializing global model as parameter average of experts...
+[2026-03-08 09:07:01] INFO - Starting Knowledge Distillation consolidation...
+[2026-03-08 09:07:04] INFO - Task Pong: Q-value stats mean=0.612, std=0.332
+[2026-03-08 09:07:04] INFO - Task Breakout: Q-value stats mean=3.494, std=1.348
+[2026-03-08 09:07:05] INFO - Task SpaceInvaders: Q-value stats mean=4.136, std=1.863
+[2026-03-08 09:10:21] INFO - Distillation epoch 50/500 | Avg loss: 0.001988
+[2026-03-08 09:13:57] INFO - Distillation epoch 100/500 | Avg loss: 0.001091
+[2026-03-08 09:17:13] INFO - Distillation epoch 150/500 | Avg loss: 0.000863
+[2026-03-08 09:20:28] INFO - Distillation epoch 200/500 | Avg loss: 0.000684
+[2026-03-08 09:23:44] INFO - Distillation epoch 250/500 | Avg loss: 0.000558
+[2026-03-08 09:27:02] INFO - Distillation epoch 300/500 | Avg loss: 0.000436
+[2026-03-08 09:30:19] INFO - Distillation epoch 350/500 | Avg loss: 0.000275
+[2026-03-08 09:33:32] INFO - Distillation epoch 400/500 | Avg loss: 0.000257
+[2026-03-08 09:36:49] INFO - Distillation epoch 450/500 | Avg loss: 0.000173
+[2026-03-08 09:40:05] INFO - Distillation epoch 500/500 | Avg loss: 0.000186
+[2026-03-08 09:40:05] INFO - Knowledge Distillation consolidation complete.
+[2026-03-08 09:40:05] INFO - Distillation model saved to results/checkpoints/default/consolidated_distillation.pt
+[2026-03-08 09:40:05] INFO - Consolidated model param norm: 48.2165
+[2026-03-08 09:40:05] INFO - Total consolidation time (distillation): 2520.4s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 09:40:06] DONE: 01a_distillation
+
+[2026-03-08 09:40:06] --- One-Shot Joint Consolidation ---
+[2026-03-08 09:40:06] START: 01b_oneshot
+[2026-03-08 09:40:06] CMD: python scripts/consolidate.py --method oneshot --config configs/base.yaml --tag default
+[2026-03-08 09:40:09] INFO - Consolidation method: oneshot
+[2026-03-08 09:40:09] INFO - Device: cuda
+[2026-03-08 09:40:09] INFO - Debug: False
+[2026-03-08 09:40:09] INFO - Tag: default
+[2026-03-08 09:40:09] INFO - Config: configs/base.yaml
+[2026-03-08 09:40:09] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 09:40:10] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 09:40:10] INFO - One-Shot config: lambda=100.0, eta=0.9, fisher_samples=20000
+[2026-03-08 09:40:10] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 09:49:10] INFO - Loaded 3 expert models in 540.0s.
+[2026-03-08 09:49:10] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 09:49:10] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 09:49:10] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 09:49:10] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-08 09:49:14] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-08 09:49:19] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-08 09:49:23] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-08 09:49:23] INFO - Initialising global model at ensemble-mean anchor (Definition 3.1)...
+[2026-03-08 09:49:23] INFO - Starting One-Shot Joint Consolidation (lambda_bar=233.3, per_task={'Pong': 500.0, 'Breakout': 100.0, 'SpaceInvaders': 100.0}, N=3)...
+[2026-03-08 09:49:23] INFO -   Computing Fisher/gradient for Pong at anchor position...
+[2026-03-08 09:50:52] INFO -   Computing Fisher/gradient for Breakout at anchor position...
+[2026-03-08 09:52:15] INFO -   Computing Fisher/gradient for SpaceInvaders at anchor position...
+[2026-03-08 09:53:39] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 233.333333
+[2026-03-08 09:53:39] INFO -   Averaged Fisher computed | effective lambda_bar = 233.3333
+[2026-03-08 09:53:39] INFO -   One-shot update_norm = 28.0749
+[2026-03-08 09:53:39] INFO - One-Shot Joint Consolidation complete.
+[2026-03-08 09:53:39] INFO - One-Shot model saved to results/checkpoints/default/consolidated_oneshot.pt
+[2026-03-08 09:53:39] INFO - Consolidated model param norm: 41.4411
+[2026-03-08 09:53:39] INFO - Total consolidation time (oneshot): 809.7s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 09:53:40] DONE: 01b_oneshot
+
+[2026-03-08 09:53:40] --- Multi-Round Iterative Consolidation ---
+[2026-03-08 09:53:40] START: 01c_iterative
+[2026-03-08 09:53:40] CMD: python scripts/consolidate.py --method iterative --config configs/base.yaml --tag default
+[2026-03-08 09:53:44] INFO - Consolidation method: iterative
+[2026-03-08 09:53:44] INFO - Device: cuda
+[2026-03-08 09:53:44] INFO - Debug: False
+[2026-03-08 09:53:44] INFO - Tag: default
+[2026-03-08 09:53:44] INFO - Config: configs/base.yaml
+[2026-03-08 09:53:44] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 09:53:45] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 09:53:45] INFO - Iterative config: lambda=100.0, eta_0=0.9, gamma=0.9, num_rounds=10, fisher_samples=20000, recompute_fisher=False
+[2026-03-08 09:53:45] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 10:02:40] INFO - Loaded 3 expert models in 535.7s.
+[2026-03-08 10:02:40] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 10:02:40] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 10:02:40] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 10:02:40] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-08 10:02:45] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-08 10:02:49] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-08 10:02:53] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-08 10:02:53] INFO - Initialising global model at ensemble-mean anchor (Algorithm 1, line 1)...
+[2026-03-08 10:02:53] INFO - Starting Multi-Round Joint Consolidation (lambda_bar=233.3, per_task={'Pong': 500.0, 'Breakout': 100.0, 'SpaceInvaders': 100.0}, eta_0=0.9, gamma=0.9, K=10, N=3, recompute_fisher=False)...
+[2026-03-08 10:02:53] INFO - Computing Fisher/gradient ONCE at initial anchor (recompute_fisher=false; each task seen once)...
+[2026-03-08 10:02:53] INFO -   [Pong] Computing Fisher/gradient...
+[2026-03-08 10:04:17] INFO -   [Breakout] Computing Fisher/gradient...
+[2026-03-08 10:05:39] INFO -   [SpaceInvaders] Computing Fisher/gradient...
+[2026-03-08 10:07:09] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 233.333333
+[2026-03-08 10:07:09] INFO - 
+--- Round 1/10 (eta_k=0.900000) ---
+[2026-03-08 10:07:09] INFO -   Round 1 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 1 | update_norm=25.2674 | max_drift=57.4535
+[2026-03-08 10:07:09] INFO - 
+--- Round 2/10 (eta_k=0.810000) ---
+[2026-03-08 10:07:09] INFO -   Round 2 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 2 | update_norm=2.3162 | max_drift=73.1679
+[2026-03-08 10:07:09] INFO - 
+--- Round 3/10 (eta_k=0.729000) ---
+[2026-03-08 10:07:09] INFO -   Round 3 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 3 | update_norm=0.4098 | max_drift=74.8588
+[2026-03-08 10:07:09] INFO - 
+--- Round 4/10 (eta_k=0.656100) ---
+[2026-03-08 10:07:09] INFO -   Round 4 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 4 | update_norm=0.1048 | max_drift=75.1550
+[2026-03-08 10:07:09] INFO - 
+--- Round 5/10 (eta_k=0.590490) ---
+[2026-03-08 10:07:09] INFO -   Round 5 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 5 | update_norm=0.0343 | max_drift=75.2284
+[2026-03-08 10:07:09] INFO - 
+--- Round 6/10 (eta_k=0.531441) ---
+[2026-03-08 10:07:09] INFO -   Round 6 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 6 | update_norm=0.0134 | max_drift=75.2514
+[2026-03-08 10:07:09] INFO - 
+--- Round 7/10 (eta_k=0.478297) ---
+[2026-03-08 10:07:09] INFO -   Round 7 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 7 | update_norm=0.0060 | max_drift=75.2600
+[2026-03-08 10:07:09] INFO - 
+--- Round 8/10 (eta_k=0.430467) ---
+[2026-03-08 10:07:09] INFO -   Round 8 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 8 | update_norm=0.0030 | max_drift=75.2637
+[2026-03-08 10:07:09] INFO - 
+--- Round 9/10 (eta_k=0.387420) ---
+[2026-03-08 10:07:09] INFO -   Round 9 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 9 | update_norm=0.0016 | max_drift=75.2654
+[2026-03-08 10:07:09] INFO - 
+--- Round 10/10 (eta_k=0.348678) ---
+[2026-03-08 10:07:09] INFO -   Round 10 | effective lambda = 233.3333
+[2026-03-08 10:07:09] INFO -   Round 10 | update_norm=0.0009 | max_drift=75.2663
+[2026-03-08 10:07:09] INFO - Multi-Round Joint Consolidation complete.
+[2026-03-08 10:07:09] INFO - Iterative model saved to results/checkpoints/default/consolidated_iterative.pt
+[2026-03-08 10:07:09] INFO - Consolidated model param norm: 41.4877
+[2026-03-08 10:07:09] INFO - Total consolidation time (iterative): 804.6s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 10:07:10] DONE: 01c_iterative
+
+[2026-03-08 10:07:10] --- Hybrid Consolidation (HTCL + KD) ---
+[2026-03-08 10:07:10] START: 01d_hybrid
+[2026-03-08 10:07:10] CMD: python scripts/consolidate.py --method hybrid --config configs/base.yaml --tag default
+[2026-03-08 10:07:14] INFO - Consolidation method: hybrid
+[2026-03-08 10:07:14] INFO - Device: cuda
+[2026-03-08 10:07:14] INFO - Debug: False
+[2026-03-08 10:07:14] INFO - Tag: default
+[2026-03-08 10:07:14] INFO - Config: configs/base.yaml
+[2026-03-08 10:07:14] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+[2026-03-08 10:07:14] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-08 10:07:14] INFO - Hybrid config: lambda=100.0, K=10, recompute_fisher=False | KD epochs=500, lr=5e-05
+[2026-03-08 10:07:14] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-08 10:16:10] INFO - Loaded 3 expert models in 535.9s.
+[2026-03-08 10:16:10] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 10:16:10] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-08 10:16:10] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-08 10:16:10] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-08 10:16:14] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-08 10:16:18] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-08 10:16:23] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-08 10:16:23] INFO - Initialising global model at ensemble-mean anchor (Algorithm 2, line 2)...
+[2026-03-08 10:16:23] INFO - Starting Hybrid Consolidation (Phase 1: Joint Taylor K=10, lambda_bar=233.3, per_task={'Pong': 500.0, 'Breakout': 100.0, 'SpaceInvaders': 100.0}, eta_0=0.9, gamma=0.9, recompute_fisher=False | Phase 2: KD epochs=500, lr=5.0e-05)...
+[2026-03-08 10:16:23] INFO - 
+============================================
+ Phase 1: Multi-Round Joint Taylor
+============================================
+[2026-03-08 10:16:23] INFO - Computing Fisher/gradient ONCE at initial anchor (recompute_fisher=false; each task seen once)...
+[2026-03-08 10:16:23] INFO -   [Pong] Computing Fisher/gradient...
+[2026-03-08 10:17:53] INFO -   [Breakout] Computing Fisher/gradient...
+[2026-03-08 10:19:15] INFO -   [SpaceInvaders] Computing Fisher/gradient...
+[2026-03-08 10:20:38] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 233.333333
+[2026-03-08 10:20:38] INFO - 
+--- Round 1/10 (eta_k=0.900000) ---
+[2026-03-08 10:20:38] INFO -   Round 1 | update_norm=25.2674 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 2/10 (eta_k=0.810000) ---
+[2026-03-08 10:20:38] INFO -   Round 2 | update_norm=2.3162 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 3/10 (eta_k=0.729000) ---
+[2026-03-08 10:20:38] INFO -   Round 3 | update_norm=0.4098 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 4/10 (eta_k=0.656100) ---
+[2026-03-08 10:20:38] INFO -   Round 4 | update_norm=0.1048 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 5/10 (eta_k=0.590490) ---
+[2026-03-08 10:20:38] INFO -   Round 5 | update_norm=0.0343 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 6/10 (eta_k=0.531441) ---
+[2026-03-08 10:20:38] INFO -   Round 6 | update_norm=0.0134 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 7/10 (eta_k=0.478297) ---
+[2026-03-08 10:20:38] INFO -   Round 7 | update_norm=0.0060 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 8/10 (eta_k=0.430467) ---
+[2026-03-08 10:20:38] INFO -   Round 8 | update_norm=0.0030 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 9/10 (eta_k=0.387420) ---
+[2026-03-08 10:20:38] INFO -   Round 9 | update_norm=0.0016 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO - 
+--- Round 10/10 (eta_k=0.348678) ---
+[2026-03-08 10:20:38] INFO -   Round 10 | update_norm=0.0009 | effective lambda=233.3333
+[2026-03-08 10:20:38] INFO -   Phase 1 complete | param norm = 41.4877
+[2026-03-08 10:20:38] INFO - 
+============================================
+ Phase 2: Knowledge Distillation Refinement
+============================================
+[2026-03-08 10:24:01] INFO -   KD epoch 50/500 | avg loss: 0.000952
+[2026-03-08 10:27:41] INFO -   KD epoch 100/500 | avg loss: 0.000654
+[2026-03-08 10:31:00] INFO -   KD epoch 150/500 | avg loss: 0.000480
+[2026-03-08 10:34:19] INFO -   KD epoch 200/500 | avg loss: 0.000361
+[2026-03-08 10:37:38] INFO -   KD epoch 250/500 | avg loss: 0.000273
+[2026-03-08 10:40:57] INFO -   KD epoch 300/500 | avg loss: 0.000264
+[2026-03-08 10:44:15] INFO -   KD epoch 350/500 | avg loss: 0.000141
+[2026-03-08 10:47:33] INFO -   KD epoch 400/500 | avg loss: 0.000112
+[2026-03-08 10:50:53] INFO -   KD epoch 450/500 | avg loss: 0.000096
+[2026-03-08 10:54:12] INFO -   KD epoch 500/500 | avg loss: 0.000095
+[2026-03-08 10:54:12] INFO -   Phase 2 complete | param norm = 50.8659
+[2026-03-08 10:54:12] INFO - Hybrid Consolidation complete.
+[2026-03-08 10:54:12] INFO - Hybrid model saved to results/checkpoints/default/consolidated_hybrid.pt
+[2026-03-08 10:54:12] INFO - Consolidated model param norm: 50.8659
+[2026-03-08 10:54:12] INFO - Total consolidation time (hybrid): 2818.3s
+Collecting 100000 replay samples for Pong...
+Collecting 100000 replay samples for Breakout...
+Collecting 100000 replay samples for SpaceInvaders...
+[2026-03-08 10:54:14] DONE: 01d_hybrid
+
+[2026-03-08 10:54:14] ---- Step 2/3: Evaluation ----
+[2026-03-08 10:54:14] Evaluating expert: Breakout
+[2026-03-08 10:54:14] START: 02_eval_expert_Breakout
+[2026-03-08 10:54:14] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_Breakout_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_Breakout_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_Breakout_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=386.00 +/- 35.02 (min=316.0, max=405.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=51.00 +/- 29.73 (min=0.0, max=80.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_expert_Breakout_default.json
+[2026-03-08 11:01:42] DONE: 02_eval_expert_Breakout
+
+[2026-03-08 11:01:42] Evaluating expert: Pong
+[2026-03-08 11:01:42] START: 02_eval_expert_Pong
+[2026-03-08 11:01:42] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_Pong_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_Pong_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_Pong_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=0.00 +/- 0.00 (min=0.0, max=0.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=131.33 +/- 84.92 (min=40.0, max=275.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=19.93 +/- 0.89 (min=19.0, max=21.0)
+
+Results saved to results/figures/eval_expert_Pong_default.json
+[2026-03-08 11:04:21] DONE: 02_eval_expert_Pong
+
+[2026-03-08 11:04:21] Evaluating expert: SpaceInvaders
+[2026-03-08 11:04:21] START: 02_eval_expert_SpaceInvaders
+[2026-03-08 11:04:21] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/expert_SpaceInvaders_best.pt --all-tasks --config configs/base.yaml --output results/figures/eval_expert_SpaceInvaders_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/expert_SpaceInvaders_best.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=1030.83 +/- 257.37 (min=570.0, max=1320.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_expert_SpaceInvaders_default.json
+[2026-03-08 11:06:38] DONE: 02_eval_expert_SpaceInvaders
+
+[2026-03-08 11:06:38] Evaluating consolidated: distillation
+[2026-03-08 11:06:38] START: 02_eval_distillation
+[2026-03-08 11:06:38] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_distillation.pt --all-tasks --config configs/base.yaml --output results/figures/eval_distillation_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_distillation.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=5.90 +/- 6.09 (min=0.0, max=15.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=42.50 +/- 22.28 (min=15.0, max=75.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-13.90 +/- 3.73 (min=-20.0, max=-4.0)
+
+Results saved to results/figures/eval_distillation_default.json
+[2026-03-08 11:09:08] DONE: 02_eval_distillation
+
+[2026-03-08 11:09:08] Evaluating consolidated: oneshot
+[2026-03-08 11:09:08] START: 02_eval_oneshot
+[2026-03-08 11:09:08] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_oneshot.pt --all-tasks --config configs/base.yaml --output results/figures/eval_oneshot_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_oneshot.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=130.17 +/- 78.69 (min=30.0, max=225.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_oneshot_default.json
+[2026-03-08 11:10:34] DONE: 02_eval_oneshot
+
+[2026-03-08 11:10:34] Evaluating consolidated: iterative
+[2026-03-08 11:10:34] START: 02_eval_iterative
+[2026-03-08 11:10:34] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_iterative.pt --all-tasks --config configs/base.yaml --output results/figures/eval_iterative_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_iterative.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=1.80 +/- 3.60 (min=0.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=229.67 +/- 110.42 (min=95.0, max=425.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-21.00 +/- 0.00 (min=-21.0, max=-21.0)
+
+Results saved to results/figures/eval_iterative_default.json
+[2026-03-08 11:12:07] DONE: 02_eval_iterative
+
+[2026-03-08 11:12:07] Evaluating consolidated: hybrid
+[2026-03-08 11:12:07] START: 02_eval_hybrid
+[2026-03-08 11:12:07] CMD: python scripts/evaluate.py --model-path results/checkpoints/default/consolidated_hybrid.pt --all-tasks --config configs/base.yaml --output results/figures/eval_hybrid_default.json
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_hybrid.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=5.20 +/- 4.12 (min=0.0, max=10.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=156.50 +/- 67.97 (min=35.0, max=235.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=14.70 +/- 6.76 (min=1.0, max=21.0)
+
+Results saved to results/figures/eval_hybrid_default.json
+[2026-03-08 11:15:06] DONE: 02_eval_hybrid
+
+[2026-03-08 11:15:06] ---- Step 3/3: Comparison Plots ----
+[2026-03-08 11:15:06] START: 03_compare
+[2026-03-08 11:15:06] CMD: python scripts/compare.py --config configs/base.yaml --tag default
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+
+============================================================
+Evaluating Expert Models
+============================================================
+  Expert (Breakout): 386.00 ± 35.02
+  Expert (SpaceInvaders): 1030.83 ± 257.37
+  Expert (Pong): 19.93 ± 0.89
+
+============================================================
+Evaluating Distillation Consolidated Model
+============================================================
+  Distillation on Breakout: 5.37 ± 6.46
+  Distillation on SpaceInvaders: 33.67 ± 19.45
+  Distillation on Pong: -15.53 ± 3.25
+
+============================================================
+Evaluating One-Shot Consolidated Model
+============================================================
+  One-Shot on Breakout: 2.40 ± 3.98
+  One-Shot on SpaceInvaders: 128.67 ± 83.81
+  One-Shot on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Iterative Consolidated Model
+============================================================
+  Iterative on Breakout: 3.00 ± 4.24
+  Iterative on SpaceInvaders: 215.00 ± 119.47
+  Iterative on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Hybrid Consolidated Model
+============================================================
+  Hybrid on Breakout: 6.13 ± 4.03
+  Hybrid on SpaceInvaders: 154.17 ± 72.82
+  Hybrid on Pong: 14.97 ± 6.61
+
+Generating comparison visualisations...
+  Saved → results/figures/{png,svg}/comparison_bar
+  Saved → results/figures/{png,svg}/performance_heatmap
+  Saved → results/figures/{png,svg}/reward_distributions
+  Saved → results/figures/{png,svg}/radar_chart
+  Saved → results/figures/{png,svg}/forgetting_gap
+  Saved → results/figures/{png,svg}/relative_performance
+  Saved → results/figures/{png,svg}/summary_table
+
+Computing KL divergence between consolidated and expert policies...
+  Saved → results/figures/{png,svg}/kl_divergence_comparison
+  KL divergence plot saved to results/figures
+
+Numerical results saved to results/figures/comparison_results_default.json
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Method                     Breakout   SpaceInvaders           Pong        Average
+--------------------------------------------------------------------------------
+Expert                       386.00        1030.83          19.93         478.92
+Distillation                   5.37          33.67         -15.53           7.83
+One-Shot                       2.40         128.67         -21.00          36.69
+Iterative                      3.00         215.00         -21.00          65.67
+Hybrid                         6.13         154.17          14.97          58.42
+================================================================================
+
+Retention (% of Expert):
+  Distillation            1.4%     3.3%   -77.9%  (avg -24.4%)
+  One-Shot                0.6%    12.5%  -105.4%  (avg -30.7%)
+  Iterative               0.8%    20.9%  -105.4%  (avg -27.9%)
+  Hybrid                  1.6%    15.0%    75.1%  (avg 30.5%)
+
+LaTeX table:
+\begin{tabular}{lcccc}
+\toprule
+Method & Breakout & SpaceInvaders & Pong & Average \\
+\midrule
+Expert & 386.0 & 1030.8 & 19.9 & 478.9 \\
+Distillation & 5.4 & 33.7 & -15.5 & 7.8 \\
+One-Shot & 2.4 & 128.7 & -21.0 & 36.7 \\
+Iterative & 3.0 & 215.0 & -21.0 & 65.7 \\
+Hybrid & 6.1 & 154.2 & 15.0 & 58.4 \\
+\bottomrule
+\end{tabular}
+[2026-03-08 11:32:45] DONE: 03_compare
+
+[2026-03-08 11:32:45] ============================================================
+[2026-03-08 11:32:45]  Pipeline Complete!
+[2026-03-08 11:32:45] ============================================================
+[2026-03-08 11:32:45]  Figures:     results/figures/{png,svg}/
+[2026-03-08 11:32:45]  Checkpoints: results/checkpoints/default/
+[2026-03-08 11:32:45]  Logs:        results/logs/consolidate_default_20260308_085800/
+[2026-03-08 11:32:45] ============================================================

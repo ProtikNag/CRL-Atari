@@ -1,0 +1,83 @@
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+
+============================================================
+Evaluating Expert Models
+============================================================
+  Expert (Breakout): 386.00 ± 35.02
+  Expert (SpaceInvaders): 1030.83 ± 257.37
+  Expert (Pong): 19.93 ± 0.89
+
+============================================================
+Evaluating Distillation Consolidated Model
+============================================================
+  Distillation on Breakout: 5.37 ± 6.46
+  Distillation on SpaceInvaders: 33.67 ± 19.45
+  Distillation on Pong: -15.53 ± 3.25
+
+============================================================
+Evaluating One-Shot Consolidated Model
+============================================================
+  One-Shot on Breakout: 2.40 ± 3.98
+  One-Shot on SpaceInvaders: 128.67 ± 83.81
+  One-Shot on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Iterative Consolidated Model
+============================================================
+  Iterative on Breakout: 3.00 ± 4.24
+  Iterative on SpaceInvaders: 215.00 ± 119.47
+  Iterative on Pong: -21.00 ± 0.00
+
+============================================================
+Evaluating Hybrid Consolidated Model
+============================================================
+  Hybrid on Breakout: 6.13 ± 4.03
+  Hybrid on SpaceInvaders: 154.17 ± 72.82
+  Hybrid on Pong: 14.97 ± 6.61
+
+Generating comparison visualisations...
+  Saved → results/figures/{png,svg}/comparison_bar
+  Saved → results/figures/{png,svg}/performance_heatmap
+  Saved → results/figures/{png,svg}/reward_distributions
+  Saved → results/figures/{png,svg}/radar_chart
+  Saved → results/figures/{png,svg}/forgetting_gap
+  Saved → results/figures/{png,svg}/relative_performance
+  Saved → results/figures/{png,svg}/summary_table
+
+Computing KL divergence between consolidated and expert policies...
+  Saved → results/figures/{png,svg}/kl_divergence_comparison
+  KL divergence plot saved to results/figures
+
+Numerical results saved to results/figures/comparison_results_default.json
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Method                     Breakout   SpaceInvaders           Pong        Average
+--------------------------------------------------------------------------------
+Expert                       386.00        1030.83          19.93         478.92
+Distillation                   5.37          33.67         -15.53           7.83
+One-Shot                       2.40         128.67         -21.00          36.69
+Iterative                      3.00         215.00         -21.00          65.67
+Hybrid                         6.13         154.17          14.97          58.42
+================================================================================
+
+Retention (% of Expert):
+  Distillation            1.4%     3.3%   -77.9%  (avg -24.4%)
+  One-Shot                0.6%    12.5%  -105.4%  (avg -30.7%)
+  Iterative               0.8%    20.9%  -105.4%  (avg -27.9%)
+  Hybrid                  1.6%    15.0%    75.1%  (avg 30.5%)
+
+LaTeX table:
+\begin{tabular}{lcccc}
+\toprule
+Method & Breakout & SpaceInvaders & Pong & Average \\
+\midrule
+Expert & 386.0 & 1030.8 & 19.9 & 478.9 \\
+Distillation & 5.4 & 33.7 & -15.5 & 7.8 \\
+One-Shot & 2.4 & 128.7 & -21.0 & 36.7 \\
+Iterative & 3.0 & 215.0 & -21.0 & 65.7 \\
+Hybrid & 6.1 & 154.2 & 15.0 & 58.4 \\
+\bottomrule
+\end{tabular}
