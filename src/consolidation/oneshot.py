@@ -59,6 +59,9 @@ class OneShotConsolidator:
 
         oneshot_cfg = config.get("oneshot", config.get("htcl", {}))
         self.lambda_val: float = oneshot_cfg.get("lambda_htcl", 100.0)
+        self.lambda_per_task: Dict[str, float] = oneshot_cfg.get(
+            "lambda_per_task", {},
+        )
         self.fisher_samples: int = oneshot_cfg.get("fisher_samples", 5000)
 
         # Internal HTCL instance provides Fisher/gradient/logging helpers
@@ -94,10 +97,18 @@ class OneShotConsolidator:
         lam = lambda_override if lambda_override is not None else self.lambda_val
         num_tasks = len(expert_results)
 
+        # Resolve per-task lambdas
+        task_lambdas = []
+        for r in expert_results:
+            gname = r["game_name"]
+            task_lambdas.append(self.lambda_per_task.get(gname, lam))
+        lambda_bar = sum(task_lambdas) / num_tasks
+
         if self.logger:
             self.logger.info(
                 f"Starting One-Shot Joint Consolidation "
-                f"(lambda={lam}, N={num_tasks})..."
+                f"(lambda_bar={lambda_bar:.1f}, per_task={dict(zip([r['game_name'] for r in expert_results], task_lambdas))}, "
+                f"N={num_tasks})..."
             )
 
         consolidated = copy.deepcopy(global_model).to(self.device)
@@ -147,11 +158,11 @@ class OneShotConsolidator:
 
         # ── Step 2: Validate lambda (Lemma 3.7) ──
         # With diagonal Fisher (F_bar >= 0), any lambda > 0 suffices.
-        eff_lam = self._htcl._ensure_lambda_constraint(avg_fisher, lam)
+        eff_lam_bar = self._htcl._ensure_lambda_constraint(avg_fisher, lambda_bar)
 
         if self.logger:
             self.logger.info(
-                f"  Averaged Fisher computed | effective lambda = {eff_lam:.4f}"
+                f"  Averaged Fisher computed | effective lambda_bar = {eff_lam_bar:.4f}"
             )
 
         # ── Step 3: Compute per-expert Taylor corrections and average ──
@@ -179,10 +190,11 @@ class OneShotConsolidator:
             if param.requires_grad
         }
 
-        for result in expert_results:
+        for task_idx, result in enumerate(expert_results):
             local_sd = result["policy_state_dict"]
             game_name = result["game_name"]
             task_valid = result["valid_actions"]
+            lam_i = task_lambdas[task_idx]
             unused = (
                 sorted(set(range(n_actions)) - set(task_valid))
                 if len(task_valid) < n_actions
@@ -204,8 +216,8 @@ class OneShotConsolidator:
                     else:
                         delta_d[unused] = 0.0
 
-                numerator = eff_lam * delta_d - g
-                denominator = h_diag + eff_lam
+                numerator = lam_i * delta_d - g
+                denominator = h_diag + eff_lam_bar
                 correction = numerator / (denominator + 1e-8)
                 avg_correction[name] += correction / num_tasks
 

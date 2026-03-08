@@ -61,6 +61,9 @@ class HybridConsolidator:
         self.lambda_val: float = hybrid_cfg.get(
             "lambda_htcl", htcl_cfg.get("lambda_htcl", 100.0),
         )
+        self.lambda_per_task: Dict[str, float] = hybrid_cfg.get(
+            "lambda_per_task", {},
+        )
         self.eta_0: float = hybrid_cfg.get("eta", htcl_cfg.get("eta", 0.9))
         self.gamma: float = hybrid_cfg.get("gamma", 0.5)
         self.num_rounds: int = hybrid_cfg.get(
@@ -168,10 +171,18 @@ class HybridConsolidator:
         num_tasks = len(expert_results)
         K = self.num_rounds
 
+        # Resolve per-task lambdas
+        task_lambdas = []
+        for r in expert_results:
+            gname = r["game_name"]
+            task_lambdas.append(self.lambda_per_task.get(gname, lam))
+        lambda_bar = sum(task_lambdas) / num_tasks
+
         if self.logger:
             self.logger.info(
                 f"Starting Hybrid Consolidation "
-                f"(Phase 1: Joint Taylor K={K}, lambda={lam}, "
+                f"(Phase 1: Joint Taylor K={K}, lambda_bar={lambda_bar:.1f}, "
+                f"per_task={dict(zip([r['game_name'] for r in expert_results], task_lambdas))}, "
                 f"eta_0={self.eta_0}, gamma={self.gamma}, "
                 f"recompute_fisher={self.recompute_fisher} | "
                 f"Phase 2: KD epochs={self.kd_epochs}, lr={self.kd_lr:.1e})..."
@@ -228,7 +239,7 @@ class HybridConsolidator:
                 )
             )
             cached_lam = self._htcl._ensure_lambda_constraint(
-                cached_fisher, lam,
+                cached_fisher, lambda_bar,
             )
 
         for round_k in range(K):
@@ -250,7 +261,7 @@ class HybridConsolidator:
                     )
                 )
                 eff_lam = self._htcl._ensure_lambda_constraint(
-                    avg_fisher, lam,
+                    avg_fisher, lambda_bar,
                 )
             else:
                 avg_fisher = cached_fisher
@@ -264,9 +275,10 @@ class HybridConsolidator:
                 if param.requires_grad
             }
 
-            for result in expert_results:
+            for task_idx, result in enumerate(expert_results):
                 local_sd = result["policy_state_dict"]
                 task_valid = result["valid_actions"]
+                lam_i = task_lambdas[task_idx]
                 unused = (
                     sorted(set(range(n_actions)) - set(task_valid))
                     if len(task_valid) < n_actions
@@ -287,7 +299,7 @@ class HybridConsolidator:
                         else:
                             delta_d[unused] = 0.0
 
-                    numerator = eff_lam * delta_d - g
+                    numerator = lam_i * delta_d - g
                     denominator = h_diag + eff_lam
                     correction = numerator / (denominator + 1e-8)
                     avg_correction[name] += correction / num_tasks

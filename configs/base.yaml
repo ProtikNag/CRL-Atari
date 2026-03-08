@@ -122,7 +122,11 @@ htcl:
 # All experts considered simultaneously at the ensemble-mean anchor.
 # Single closed-form Taylor correction; no step size (Eq. 12).
 oneshot:
-  lambda_htcl: 100.0
+  lambda_htcl: 100.0       # fallback if game not in lambda_per_task
+  lambda_per_task:
+    Breakout: 100.0
+    SpaceInvaders: 100.0
+    Pong: 500.0
   fisher_samples: 20000
   filtered_buffer_size: 50_000
 
@@ -130,7 +134,11 @@ oneshot:
 # Each round: averaged Fisher/gradient over all experts jointly, single
 # combined Taylor update.  Step size decays as eta_0 * gamma^k.
 iterative:
-  lambda_htcl: 100.0
+  lambda_htcl: 100.0       # fallback if game not in lambda_per_task
+  lambda_per_task:
+    Breakout: 100.0
+    SpaceInvaders: 100.0
+    Pong: 500.0
   eta: 0.9            # eta_0 (initial step size)
   gamma: 0.9          # step-size decay per round (slower for K=10)
   num_rounds: 10       # K rounds
@@ -143,7 +151,11 @@ iterative:
 # Phase 2: KD refinement (Theorem 5.2 warm-start advantage).
 hybrid:
   # Phase 1 (Joint Taylor) settings
-  lambda_htcl: 100.0
+  lambda_htcl: 100.0       # fallback if game not in lambda_per_task
+  lambda_per_task:
+    Breakout: 100.0
+    SpaceInvaders: 100.0
+    Pong: 500.0
   eta: 0.9            # eta_0
   gamma: 0.9          # step-size decay per round (slower for K=10)
   num_rounds: 10       # K rounds
