@@ -103,10 +103,10 @@ htcl:
   # only the top-K most decisive states are retained.
   filtered_buffer_size: 50_000
   fisher_samples: 5000
-  # Lambda candidates for per-lambda consolidation.
+  # Lambda candidates for per-lambda consolidation (legacy grid search).
   lambda_candidates: [0.1, 1.0, 10.0, 100.0, 1000.0]
   # Default lambda used as fallback.
-  lambda_htcl: 10.0
+  lambda_htcl: 100.0
   lambda_auto: false
   lambda_margin: 0.1  # Safety margin above -mu_min(H)
   eta: 0.9            # Taylor update step size
@@ -117,6 +117,40 @@ htcl:
   # Joint refinement: after multi-pass, compute Fisher & gradient over ALL
   # tasks jointly and apply one final Taylor update toward mean expert.
   joint_refinement: true
+
+# --- One-Shot Joint Consolidation ---
+# All experts are considered simultaneously at the initial global position.
+# A single averaged Taylor correction is applied (no sequential bias).
+oneshot:
+  lambda_htcl: 100.0
+  eta: 0.9
+  fisher_samples: 5000
+  filtered_buffer_size: 50_000
+
+# --- Multi-Round Iterative Consolidation ---
+# Sequential Taylor updates over experts, repeated for multiple passes.
+iterative:
+  lambda_htcl: 100.0
+  eta: 0.9
+  fisher_samples: 5000
+  filtered_buffer_size: 50_000
+  num_passes: 3
+  joint_refinement: true
+
+# --- Hybrid Consolidation (HTCL + Knowledge Distillation) ---
+# Phase 1: Multi-round iterative HTCL for a principled starting point.
+# Phase 2: KD refinement to recover subtle policy details.
+hybrid:
+  # Phase 1 (HTCL) settings
+  lambda_htcl: 100.0
+  eta: 0.9
+  num_passes: 3
+  joint_refinement: true
+  # Phase 2 (KD refinement) settings
+  kd_epochs: 25
+  kd_lr: 2.5e-5
+  temperature: 2.0
+  kd_batch_size: 64
 
 # --- Evaluation ---
 evaluation:
@@ -151,3 +185,5 @@ debug:
   fisher_samples: 100
   distill_epochs: 5
   lambda_candidates: [1.0, 100.0]
+  # Hybrid KD refinement debug override
+  hybrid_kd_epochs: 3

@@ -15,8 +15,14 @@
 # Consolidates pre-trained expert checkpoints into single models and produces
 # comprehensive evaluation plots and visualisations.
 #
+# Consolidation Methods:
+#   1. Knowledge Distillation   (soft Q-value matching)
+#   2. One-Shot Joint           (single Taylor step over all tasks)
+#   3. Multi-Round Iterative    (sequential Taylor + multi-pass)
+#   4. Hybrid                   (iterative HTCL then KD refinement)
+#
 # Steps:
-#   1. Consolidate experts  (Distillation + HTCL per-lambda)
+#   1. Consolidate experts (all four methods; skip if checkpoint exists)
 #   2. Evaluate all models on all tasks (experts + all consolidated variants)
 #   3. Generate comparison plots
 #
@@ -37,7 +43,7 @@
 hostname
 date
 
-# ── GPU / Environment Setup ──────────────────────────────────────────────────
+# -- GPU / Environment Setup ---------------------------------------------------
 
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -62,7 +68,7 @@ fi
 
 set -e
 
-# ── Parse arguments ──────────────────────────────────────────────────────────
+# -- Parse arguments -----------------------------------------------------------
 
 DEBUG=""
 TAG="default"
@@ -98,7 +104,7 @@ done
 
 COMMON_ARGS="--config ${CONFIG} --tag ${TAG} ${DEBUG} ${DEVICE}"
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# -- Logging -------------------------------------------------------------------
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="results/logs/consolidate_${TAG}_${TIMESTAMP}"
@@ -134,28 +140,57 @@ log_msg " Device: ${DEVICE:-auto}"
 log_msg " Log:    ${LOG_DIR}"
 log_msg "============================================================"
 
-# ── Step 1: Consolidation ────────────────────────────────────────────────────
+# -- Step 1: Consolidation ----------------------------------------------------
+
+CKPT_DIR="results/checkpoints/${TAG}"
 
 if [ -z "${SKIP_CONSOLIDATE}" ]; then
-    log_msg "──── Step 1/3: Consolidation ────"
+    log_msg "---- Step 1/3: Consolidation ----"
 
-    log_msg "--- Knowledge Distillation ---"
-    run_step "01a_distillation" \
-        python scripts/consolidate.py --method distillation ${COMMON_ARGS}
+    # 1a. Knowledge Distillation (skip if checkpoint already exists)
+    if [ -f "${CKPT_DIR}/consolidated_distillation.pt" ]; then
+        log_msg "--- Knowledge Distillation: checkpoint exists, SKIPPING ---"
+    else
+        log_msg "--- Knowledge Distillation ---"
+        run_step "01a_distillation" \
+            python scripts/consolidate.py --method distillation ${COMMON_ARGS}
+    fi
 
-    log_msg "--- HTCL ---"
-    run_step "01b_htcl" \
-        python scripts/consolidate.py --method htcl ${COMMON_ARGS}
+    # 1b. One-Shot Joint Consolidation
+    if [ -f "${CKPT_DIR}/consolidated_oneshot.pt" ]; then
+        log_msg "--- One-Shot: checkpoint exists, SKIPPING ---"
+    else
+        log_msg "--- One-Shot Joint Consolidation ---"
+        run_step "01b_oneshot" \
+            python scripts/consolidate.py --method oneshot ${COMMON_ARGS}
+    fi
+
+    # 1c. Multi-Round Iterative Consolidation
+    if [ -f "${CKPT_DIR}/consolidated_iterative.pt" ]; then
+        log_msg "--- Iterative: checkpoint exists, SKIPPING ---"
+    else
+        log_msg "--- Multi-Round Iterative Consolidation ---"
+        run_step "01c_iterative" \
+            python scripts/consolidate.py --method iterative ${COMMON_ARGS}
+    fi
+
+    # 1d. Hybrid Consolidation (HTCL + KD)
+    if [ -f "${CKPT_DIR}/consolidated_hybrid.pt" ]; then
+        log_msg "--- Hybrid: checkpoint exists, SKIPPING ---"
+    else
+        log_msg "--- Hybrid Consolidation (HTCL + KD) ---"
+        run_step "01d_hybrid" \
+            python scripts/consolidate.py --method hybrid ${COMMON_ARGS}
+    fi
 else
     log_msg "Skipping consolidation (--skip-consolidate)."
 fi
 
-# ── Step 2: Evaluate ─────────────────────────────────────────────────────────
+# -- Step 2: Evaluate ---------------------------------------------------------
 
-log_msg "──── Step 2/3: Evaluation ────"
+log_msg "---- Step 2/3: Evaluation ----"
 
-CKPT_DIR="results/checkpoints/${TAG}"
-
+# Evaluate each expert on all tasks
 for EXPERT_CKPT in ${CKPT_DIR}/expert_*_best.pt; do
     if [ -f "${EXPERT_CKPT}" ]; then
         GAME=$(basename "${EXPERT_CKPT}" | sed 's/expert_//;s/_best.pt//')
@@ -168,7 +203,8 @@ for EXPERT_CKPT in ${CKPT_DIR}/expert_*_best.pt; do
     fi
 done
 
-for METHOD in distillation htcl; do
+# Evaluate all consolidated methods
+for METHOD in distillation oneshot iterative hybrid; do
     CKPT="${CKPT_DIR}/consolidated_${METHOD}.pt"
     if [ -f "${CKPT}" ]; then
         log_msg "Evaluating consolidated: ${METHOD}"
@@ -180,7 +216,7 @@ for METHOD in distillation htcl; do
     fi
 done
 
-# HTCL per-lambda checkpoints (consolidated_htcl_lam*.pt)
+# HTCL per-lambda checkpoints (legacy, if they exist)
 for HTCL_CKPT in ${CKPT_DIR}/consolidated_htcl_lam*.pt; do
     if [ -f "${HTCL_CKPT}" ]; then
         LAM_TAG=$(basename "${HTCL_CKPT}" .pt | sed 's/consolidated_htcl_//')
@@ -193,13 +229,13 @@ for HTCL_CKPT in ${CKPT_DIR}/consolidated_htcl_lam*.pt; do
     fi
 done
 
-# ── Step 3: Comparison Plots ─────────────────────────────────────────────────
+# -- Step 3: Comparison Plots -------------------------------------------------
 
-log_msg "──── Step 3/3: Comparison Plots ────"
+log_msg "---- Step 3/3: Comparison Plots ----"
 run_step "03_compare" \
     python scripts/compare.py ${COMMON_ARGS} ${EVAL_EPISODES}
 
-# ── Summary ──────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 
 log_msg "============================================================"
 log_msg " Pipeline Complete!"

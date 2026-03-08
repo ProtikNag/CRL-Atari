@@ -1,32 +1,57 @@
 """
-Consolidate expert models using Distillation or HTCL.
+Consolidate expert models using one of four methods.
+
+Methods:
+    distillation  -- Knowledge Distillation (soft Q-value matching)
+    oneshot       -- One-Shot Joint Consolidation (single Taylor step over all tasks)
+    iterative     -- Multi-Round Iterative Consolidation (sequential Taylor + multi-pass)
+    hybrid        -- Hybrid Consolidation (iterative HTCL then KD refinement)
 
 Loads trained expert checkpoints and merges them into a single global model.
 
 Usage:
     python scripts/consolidate.py --method distillation [--debug]
-    python scripts/consolidate.py --method htcl [--debug]
+    python scripts/consolidate.py --method oneshot [--debug]
+    python scripts/consolidate.py --method iterative [--debug]
+    python scripts/consolidate.py --method hybrid [--debug]
 """
 
 import argparse
 import os
 import sys
 import json
+import time as _time
+
 import torch
+import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.dqn import DQNNetwork
 from src.data.replay_buffer import ReplayBuffer
-from src.data.atari_wrappers import get_valid_actions, make_atari_env, compute_union_action_space
+from src.data.atari_wrappers import (
+    get_valid_actions,
+    make_atari_env,
+    compute_union_action_space,
+)
 from src.consolidation.distillation import DistillationConsolidator
-from src.consolidation.htcl import HTCLConsolidator
+from src.consolidation.oneshot import OneShotConsolidator
+from src.consolidation.iterative import IterativeConsolidator
+from src.consolidation.hybrid import HybridConsolidator
 from src.utils.config import get_effective_config, save_config
 from src.utils.seed import set_seed
 from src.utils.logger import setup_logger
 
-import numpy as np
+# -- Supported methods ---------------------------------------------------------
 
+ALL_METHODS = ["distillation", "oneshot", "iterative", "hybrid"]
+
+# Methods that need Fisher/gradient infrastructure (high-confidence states,
+# frozen expert models, etc.)
+TAYLOR_METHODS = {"oneshot", "iterative", "hybrid"}
+
+
+# -- Helpers -------------------------------------------------------------------
 
 def build_model(config: dict, device: str) -> DQNNetwork:
     """Construct a DQN model from config."""
@@ -43,7 +68,11 @@ def build_model(config: dict, device: str) -> DQNNetwork:
 
 
 def collect_replay_data(
-    env_id: str, model: DQNNetwork, config: dict, device: str, num_samples: int,
+    env_id: str,
+    model: DQNNetwork,
+    config: dict,
+    device: str,
+    num_samples: int,
     union_actions: list,
 ) -> ReplayBuffer:
     """Collect replay data by running the expert in the environment.
@@ -54,6 +83,7 @@ def collect_replay_data(
         config: Configuration dictionary.
         device: Device string.
         num_samples: Number of transitions to collect.
+        union_actions: Union action list.
 
     Returns:
         Filled replay buffer.
@@ -90,7 +120,7 @@ def collect_replay_data(
             )
             q_values = model(state_tensor)
             mask = torch.full(
-                (model.unified_action_dim,), float("-inf"), device=device
+                (model.unified_action_dim,), float("-inf"), device=device,
             )
             mask[valid_actions] = 0.0
             masked_q = q_values + mask.unsqueeze(0)
@@ -111,7 +141,10 @@ def collect_replay_data(
 
 
 def load_expert_results(
-    config: dict, tag: str, device: str, union_actions: list,
+    config: dict,
+    tag: str,
+    device: str,
+    union_actions: list,
 ) -> list:
     """Load expert checkpoints and rebuild results structure.
 
@@ -119,6 +152,7 @@ def load_expert_results(
         config: Configuration dictionary.
         tag: Experiment tag.
         device: Device string.
+        union_actions: Union action list.
 
     Returns:
         List of expert result dictionaries.
@@ -136,17 +170,19 @@ def load_expert_results(
         valid_actions = expert_info["valid_actions"]
 
         ckpt_path = os.path.join(
-            checkpoint_dir, tag, f"expert_{game_name}_best.pt"
+            checkpoint_dir, tag, f"expert_{game_name}_best.pt",
         )
         if not os.path.exists(ckpt_path):
             raise FileNotFoundError(
                 f"No best checkpoint found for {game_name} at {ckpt_path}"
             )
 
-        checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
+        checkpoint = torch.load(
+            ckpt_path, map_location=device, weights_only=False,
+        )
         policy_sd = checkpoint["policy_net"]
 
-        # Build model and collect replay data for Fisher/distillation
+        # Build model and collect replay data for Fisher / distillation
         model = build_model(config, device)
         model.load_state_dict(policy_sd)
 
@@ -159,7 +195,7 @@ def load_expert_results(
 
         print(f"Collecting {buffer_size} replay samples for {game_name}...")
         replay_buffer = collect_replay_data(
-            env_id, model, config, device, buffer_size, union_actions
+            env_id, model, config, device, buffer_size, union_actions,
         )
 
         results.append(
@@ -177,33 +213,223 @@ def load_expert_results(
     return results
 
 
+def filter_replay_states(
+    config: dict,
+    expert_results: list,
+    device: str,
+    logger,
+) -> tuple:
+    """Build frozen expert models and filter replay buffers.
+
+    Returns:
+        (filtered_states_list, expert_models)
+    """
+    debug_enabled = config.get("debug", {}).get("enabled", False)
+
+    # Pick the right filtered_buffer_size from htcl config (shared)
+    htcl_cfg = config.get("htcl", {})
+    filtered_size = (
+        config["debug"].get("filtered_buffer_size", 500)
+        if debug_enabled
+        else htcl_cfg.get("filtered_buffer_size", 10_000)
+    )
+
+    logger.info(
+        f"Filtering replay buffers to top-{filtered_size} "
+        f"high-confidence states per expert..."
+    )
+
+    filtered_states_list = []
+    expert_models = []
+
+    for r in expert_results:
+        expert_model = build_model(config, device)
+        expert_model.load_state_dict(r["policy_state_dict"])
+        expert_model.eval()
+        for p in expert_model.parameters():
+            p.requires_grad_(False)
+        expert_models.append(expert_model)
+
+        filt_states = r["replay_buffer"].filter_by_confidence(
+            expert_model, r["valid_actions"], top_k=filtered_size,
+        )
+        filtered_states_list.append(filt_states)
+        logger.info(
+            f"  {r['game_name']}: {filt_states.shape[0]} states filtered "
+            f"from {r['replay_buffer'].size} raw transitions"
+        )
+
+    return filtered_states_list, expert_models
+
+
+# -- Per-method consolidation runners -----------------------------------------
+
+def run_distillation(config, expert_results, device, logger, tag):
+    """Run Knowledge Distillation consolidation."""
+    logger.info("Initializing global model as parameter average of experts...")
+    global_model = build_model(config, device)
+    first_sd = expert_results[0]["policy_state_dict"]
+    init_sd = {}
+    for key in first_sd:
+        init_sd[key] = torch.stack(
+            [r["policy_state_dict"][key].float().to(device) for r in expert_results]
+        ).mean(dim=0)
+    global_model.load_state_dict(init_sd)
+
+    consolidator = DistillationConsolidator(config, device=device, logger=logger)
+    consolidated = consolidator.consolidate(global_model, expert_results)
+
+    save_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "consolidated_distillation.pt",
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(consolidated.state_dict(), save_path)
+    logger.info(f"Distillation model saved to {save_path}")
+    return consolidated
+
+
+def run_oneshot(
+    config, expert_results, filtered_states_list, expert_models,
+    device, logger, tag,
+):
+    """Run One-Shot Joint Consolidation."""
+    global_model = build_model(config, device)
+    first_sd = expert_results[0]["policy_state_dict"]
+    init_sd = {k: v.float().to(device) for k, v in first_sd.items()}
+    global_model.load_state_dict(init_sd)
+    logger.info(
+        f"Initialising global model from first expert "
+        f"({expert_results[0]['game_name']})..."
+    )
+
+    consolidator = OneShotConsolidator(config, device=device, logger=logger)
+    consolidated = consolidator.consolidate(
+        global_model, expert_results,
+        filtered_states_list=filtered_states_list,
+        expert_models=expert_models,
+    )
+
+    save_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "consolidated_oneshot.pt",
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(consolidated.state_dict(), save_path)
+    logger.info(f"One-Shot model saved to {save_path}")
+
+    fisher_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "oneshot_fisher_log.json",
+    )
+    consolidator.save_fisher_log(fisher_path)
+    return consolidated
+
+
+def run_iterative(
+    config, expert_results, filtered_states_list, expert_models,
+    device, logger, tag,
+):
+    """Run Multi-Round Iterative Consolidation."""
+    global_model = build_model(config, device)
+    first_sd = expert_results[0]["policy_state_dict"]
+    init_sd = {k: v.float().to(device) for k, v in first_sd.items()}
+    global_model.load_state_dict(init_sd)
+    logger.info(
+        f"Initialising global model from first expert "
+        f"({expert_results[0]['game_name']})..."
+    )
+
+    consolidator = IterativeConsolidator(config, device=device, logger=logger)
+    consolidated = consolidator.consolidate(
+        global_model, expert_results,
+        filtered_states_list=filtered_states_list,
+        expert_models=expert_models,
+    )
+
+    save_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "consolidated_iterative.pt",
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(consolidated.state_dict(), save_path)
+    logger.info(f"Iterative model saved to {save_path}")
+
+    fisher_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "iterative_fisher_log.json",
+    )
+    consolidator.save_fisher_log(fisher_path)
+    return consolidated
+
+
+def run_hybrid(
+    config, expert_results, filtered_states_list, expert_models,
+    device, logger, tag,
+):
+    """Run Hybrid Consolidation (HTCL + KD)."""
+    global_model = build_model(config, device)
+    first_sd = expert_results[0]["policy_state_dict"]
+    init_sd = {k: v.float().to(device) for k, v in first_sd.items()}
+    global_model.load_state_dict(init_sd)
+    logger.info(
+        f"Initialising global model from first expert "
+        f"({expert_results[0]['game_name']})..."
+    )
+
+    # Apply debug override for hybrid KD epochs
+    debug_enabled = config.get("debug", {}).get("enabled", False)
+    if debug_enabled:
+        hybrid_cfg = config.setdefault("hybrid", {})
+        hybrid_cfg["kd_epochs"] = config["debug"].get("hybrid_kd_epochs", 3)
+
+    consolidator = HybridConsolidator(config, device=device, logger=logger)
+    consolidated = consolidator.consolidate(
+        global_model, expert_results,
+        filtered_states_list=filtered_states_list,
+        expert_models=expert_models,
+    )
+
+    save_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "consolidated_hybrid.pt",
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(consolidated.state_dict(), save_path)
+    logger.info(f"Hybrid model saved to {save_path}")
+
+    fisher_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "hybrid_fisher_log.json",
+    )
+    consolidator.save_fisher_log(fisher_path)
+    return consolidated
+
+
+# -- Main ----------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(description="Consolidate expert models.")
     parser.add_argument(
         "--method",
         type=str,
         required=True,
-        choices=["distillation", "htcl"],
+        choices=ALL_METHODS,
         help="Consolidation method.",
     )
     parser.add_argument(
-        "--config", type=str, default="configs/base.yaml", help="Config file."
+        "--config", type=str, default="configs/base.yaml", help="Config file.",
     )
     parser.add_argument(
-        "--override-config", type=str, default=None, help="Override config."
+        "--override-config", type=str, default=None, help="Override config.",
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode."
+        "--debug", action="store_true", help="Enable debug mode.",
     )
     parser.add_argument(
-        "--device", type=str, default=None, help="Device."
+        "--device", type=str, default=None, help="Device.",
     )
     parser.add_argument(
-        "--tag", type=str, default="default", help="Experiment tag."
+        "--tag", type=str, default="default", help="Experiment tag.",
     )
     args = parser.parse_args()
 
-    config = get_effective_config(args.config, args.override_config, debug=args.debug)
+    config = get_effective_config(
+        args.config, args.override_config, debug=args.debug,
+    )
 
     if args.device:
         device = args.device
@@ -232,229 +458,101 @@ def main():
     # Compute union action space
     union_actions = compute_union_action_space(config["task_sequence"])
     config["model"]["unified_action_dim"] = len(union_actions)
-    logger.info(f"Union action space: {union_actions} ({len(union_actions)} actions)")
+    logger.info(
+        f"Union action space: {union_actions} ({len(union_actions)} actions)"
+    )
 
     # Log method-specific hyperparameters
     if args.method == "distillation":
         dist_cfg = config["distillation"]
-        logger.info(f"Distillation config: temperature={dist_cfg['temperature']}, "
-                    f"alpha={dist_cfg['alpha']}, epochs={dist_cfg['distill_epochs']}, "
-                    f"lr={dist_cfg['distill_lr']}, batch_size={dist_cfg['distill_batch_size']}")
-    elif args.method == "htcl":
-        htcl_cfg = config["htcl"]
-        logger.info(f"HTCL config: lambda_candidates={htcl_cfg.get('lambda_candidates', [])}, "
-                    f"fisher_samples={htcl_cfg['fisher_samples']}, "
-                    f"eta={htcl_cfg['eta']}, "
-                    f"num_passes={htcl_cfg.get('num_passes', 1)}, "
-                    f"joint_refinement={htcl_cfg.get('joint_refinement', False)}")
+        logger.info(
+            f"Distillation config: temperature={dist_cfg['temperature']}, "
+            f"alpha={dist_cfg['alpha']}, epochs={dist_cfg['distill_epochs']}, "
+            f"lr={dist_cfg['distill_lr']}, "
+            f"batch_size={dist_cfg['distill_batch_size']}"
+        )
+    elif args.method == "oneshot":
+        os_cfg = config.get("oneshot", config.get("htcl", {}))
+        logger.info(
+            f"One-Shot config: lambda={os_cfg.get('lambda_htcl', 100.0)}, "
+            f"eta={os_cfg.get('eta', 0.9)}, "
+            f"fisher_samples={os_cfg.get('fisher_samples', 5000)}"
+        )
+    elif args.method == "iterative":
+        it_cfg = config.get("iterative", config.get("htcl", {}))
+        logger.info(
+            f"Iterative config: lambda={it_cfg.get('lambda_htcl', 100.0)}, "
+            f"eta={it_cfg.get('eta', 0.9)}, "
+            f"num_passes={it_cfg.get('num_passes', 3)}, "
+            f"joint_refinement={it_cfg.get('joint_refinement', True)}, "
+            f"fisher_samples={it_cfg.get('fisher_samples', 5000)}"
+        )
+    elif args.method == "hybrid":
+        hy_cfg = config.get("hybrid", {})
+        logger.info(
+            f"Hybrid config: HTCL lambda={hy_cfg.get('lambda_htcl', 100.0)}, "
+            f"passes={hy_cfg.get('num_passes', 3)} | "
+            f"KD epochs={hy_cfg.get('kd_epochs', 25)}, "
+            f"lr={hy_cfg.get('kd_lr', 2.5e-5)}"
+        )
 
-    # Load expert results
-    import time as _time
+    # -- Load expert results --
     _t0 = _time.time()
     logger.info("Loading expert checkpoints and collecting replay data...")
     expert_results = load_expert_results(config, args.tag, device, union_actions)
-    logger.info(f"Loaded {len(expert_results)} expert models in {_time.time()-_t0:.1f}s.")
+    logger.info(
+        f"Loaded {len(expert_results)} expert models "
+        f"in {_time.time() - _t0:.1f}s."
+    )
     for r in expert_results:
-        logger.info(f"  {r['game_name']}: best_reward={r['best_reward']:.2f}, "
-                    f"valid_actions={r['valid_actions']}, "
-                    f"buffer_size={r['replay_buffer'].size}")
-
-    # ── Build global model with method-specific initialization ──
-    global_model = build_model(config, device)
-
-    if args.method == "htcl":
-        # HTCL: global model initialized from FIRST expert (not averaged).
-        # This avoids the circular dependency of averaging task-3 weights
-        # before the model has ever "seen" task 3.
         logger.info(
-            "Initializing global model from first expert "
-            f"({expert_results[0]['game_name']})..."
+            f"  {r['game_name']}: best_reward={r['best_reward']:.2f}, "
+            f"valid_actions={r['valid_actions']}, "
+            f"buffer_size={r['replay_buffer'].size}"
         )
-        first_sd = expert_results[0]["policy_state_dict"]
-        init_sd = {
-            k: v.float().to(device) for k, v in first_sd.items()
-        }
-        global_model.load_state_dict(init_sd)
-    else:
-        # Distillation: parameter-average of all experts
-        logger.info(
-            "Initializing global model as parameter average of experts..."
-        )
-        first_sd = expert_results[0]["policy_state_dict"]
-        init_sd = {}
-        for key in first_sd:
-            init_sd[key] = torch.stack(
-                [
-                    r["policy_state_dict"][key].float().to(device)
-                    for r in expert_results
-                ]
-            ).mean(dim=0)
-        global_model.load_state_dict(init_sd)
 
-    total_norm = sum(
-        p.data.norm().item() ** 2 for p in global_model.parameters()
-    ) ** 0.5
-    logger.info(f"Global model param norm: {total_norm:.4f}")
-
-    # ── HTCL: confidence-filter replay buffers & build frozen expert list ──
+    # -- Filter replay states (needed for Taylor-based methods) --
     filtered_states_list = None
     expert_models = None
 
-    if args.method == "htcl":
-        htcl_cfg = config["htcl"]
-        debug_enabled = config.get("debug", {}).get("enabled", False)
-        filtered_size = (
-            config["debug"].get("filtered_buffer_size", 500)
-            if debug_enabled
-            else htcl_cfg.get("filtered_buffer_size", 10_000)
+    if args.method in TAYLOR_METHODS:
+        filtered_states_list, expert_models = filter_replay_states(
+            config, expert_results, device, logger,
         )
 
-        logger.info(
-            f"Filtering replay buffers to top-{filtered_size} "
-            f"high-confidence states per expert..."
-        )
-        filtered_states_list = []
-        expert_models = []
-
-        for r in expert_results:
-            # Build frozen expert model for KL evaluation
-            expert_model = build_model(config, device)
-            expert_model.load_state_dict(r["policy_state_dict"])
-            expert_model.eval()
-            for p in expert_model.parameters():
-                p.requires_grad_(False)
-            expert_models.append(expert_model)
-
-            # Filter states by Q-value gap confidence
-            filt_states = r["replay_buffer"].filter_by_confidence(
-                expert_model, r["valid_actions"], top_k=filtered_size,
-            )
-            filtered_states_list.append(filt_states)
-            logger.info(
-                f"  {r['game_name']}: {filt_states.shape[0]} states filtered "
-                f"from {r['replay_buffer'].size} raw transitions"
-            )
-
-    # ── Run consolidation ──
+    # -- Run consolidation --
     if args.method == "distillation":
-        consolidator = DistillationConsolidator(
-            config, device=device, logger=logger,
+        consolidated = run_distillation(
+            config, expert_results, device, logger, args.tag,
         )
-        consolidated_model = consolidator.consolidate(
-            global_model, expert_results,
+    elif args.method == "oneshot":
+        consolidated = run_oneshot(
+            config, expert_results, filtered_states_list, expert_models,
+            device, logger, args.tag,
         )
-    elif args.method == "htcl":
-        consolidator = HTCLConsolidator(
-            config, device=device, logger=logger,
+    elif args.method == "iterative":
+        consolidated = run_iterative(
+            config, expert_results, filtered_states_list, expert_models,
+            device, logger, args.tag,
         )
-
-        # Per-lambda consolidation loop
-        htcl_cfg = config["htcl"]
-        lambda_candidates = htcl_cfg.get(
-            "lambda_candidates", [0.1, 1.0, 10.0, 100.0, 1000.0],
+    elif args.method == "hybrid":
+        consolidated = run_hybrid(
+            config, expert_results, filtered_states_list, expert_models,
+            device, logger, args.tag,
         )
-
-        for lam in lambda_candidates:
-            logger.info(f"\n{'=' * 60}")
-            logger.info(f"HTCL consolidation with lambda = {lam}")
-            logger.info("=" * 60)
-
-            # Fresh global model from first expert for each lambda
-            lam_model = build_model(config, device)
-            lam_model.load_state_dict(init_sd)
-
-            lam_consolidator = HTCLConsolidator(
-                config, device=device, logger=logger,
-            )
-
-            lam_consolidator.register_initial_task(
-                lam_model,
-                expert_results[0]["valid_actions"],
-                filtered_states_list[0],
-                expert_results[0]["game_name"],
-            )
-
-            consolidated_model = lam_consolidator.consolidate(
-                lam_model, expert_results,
-                filtered_states_list=filtered_states_list,
-                expert_models=expert_models,
-                lambda_override=lam,
-                num_passes=htcl_cfg.get("num_passes", 1),
-                joint_refinement=htcl_cfg.get("joint_refinement", False),
-            )
-
-            # Post-consolidation statistics
-            total_norm_after = sum(
-                p.data.norm().item() ** 2
-                for p in consolidated_model.parameters()
-            ) ** 0.5
-            logger.info(
-                f"  Consolidated model param norm: {total_norm_after:.4f} "
-                f"(delta: {total_norm_after - total_norm:+.4f})"
-            )
-
-            # Save checkpoint
-            save_path = os.path.join(
-                config["logging"]["checkpoint_dir"],
-                args.tag,
-                f"consolidated_htcl_lam{lam}.pt",
-            )
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            torch.save(consolidated_model.state_dict(), save_path)
-            logger.info(f"  Saved to {save_path}")
-
-        # Save Fisher log from last consolidator (representative)
-        fisher_log_path = os.path.join(
-            config["logging"]["checkpoint_dir"],
-            args.tag,
-            "htcl_fisher_log.json",
-        )
-        lam_consolidator.save_fisher_log(fisher_log_path)
-
-        # Save lambda grid search log (if grid search was run)
-        if lam_consolidator.lambda_grid_results:
-            grid_log_path = os.path.join(
-                config["logging"]["checkpoint_dir"],
-                args.tag,
-                "htcl_lambda_grid.json",
-            )
-            lam_consolidator.save_lambda_grid_log(grid_log_path)
     else:
         raise ValueError(f"Unknown method: {args.method}")
 
+    # -- Post-consolidation statistics --
+    total_norm = sum(
+        p.data.norm().item() ** 2 for p in consolidated.parameters()
+    ) ** 0.5
+    logger.info(f"Consolidated model param norm: {total_norm:.4f}")
+
     _total_time = _time.time() - _t0
-    logger.info(f"Total consolidation time ({args.method}): {_total_time:.1f}s")
-
-    # ── Post-consolidation statistics (distillation only) ──
-    if args.method == "distillation":
-        total_norm_after = sum(
-            p.data.norm().item() ** 2
-            for p in consolidated_model.parameters()
-        ) ** 0.5
-        logger.info(
-            f"Consolidated model param norm: {total_norm_after:.4f} "
-            f"(delta: {total_norm_after - total_norm:+.4f})"
-        )
-
-        drift_norms = {}
-        for key, param in consolidated_model.named_parameters():
-            drift = (
-                param.data - init_sd[key].to(device)
-            ).norm().item()
-            drift_norms[key.split('.')[0]] = (
-                drift_norms.get(key.split('.')[0], 0) + drift
-            )
-        for layer, drift in drift_norms.items():
-            logger.info(f"  Weight drift [{layer}]: {drift:.6f}")
-
-        save_path = os.path.join(
-            config["logging"]["checkpoint_dir"],
-            args.tag,
-            f"consolidated_{args.method}.pt",
-        )
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        torch.save(consolidated_model.state_dict(), save_path)
-        logger.info(f"Consolidated model saved to {save_path}")
+    logger.info(
+        f"Total consolidation time ({args.method}): {_total_time:.1f}s"
+    )
 
     logger.close()
 

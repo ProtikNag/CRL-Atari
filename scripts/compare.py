@@ -677,15 +677,32 @@ def plot_kl_divergence(
         print("  No consolidated methods available for KL comparison.")
         return
 
+    # Map display names to checkpoint filenames
+    METHOD_CKPT_MAP = {
+        "Distillation":  "consolidated_distillation.pt",
+        "One-Shot":      "consolidated_oneshot.pt",
+        "Iterative":     "consolidated_iterative.pt",
+        "Hybrid":        "consolidated_hybrid.pt",
+    }
+
     # ── Collect states and expert policies ──
     kl_data: dict = {}  # method -> {game: kl_value}
 
     for method in methods:
         kl_data[method] = {}
-        method_key = method.lower()
-        ckpt_path = os.path.join(
-            checkpoint_dir, tag, f"consolidated_{method_key}.pt",
-        )
+
+        # Resolve checkpoint path
+        if method in METHOD_CKPT_MAP:
+            ckpt_fname = METHOD_CKPT_MAP[method]
+        elif "HTCL" in method and "\u03bb" in method:
+            # Legacy HTCL per-lambda: HTCL (λ=100) -> consolidated_htcl_lam100.0.pt
+            lam_str = method.split("=")[1].rstrip(")")
+            ckpt_fname = f"consolidated_htcl_lam{lam_str}.pt"
+        else:
+            method_key = method.lower().replace(" ", "_")
+            ckpt_fname = f"consolidated_{method_key}.pt"
+
+        ckpt_path = os.path.join(checkpoint_dir, tag, ckpt_fname)
         if not os.path.exists(ckpt_path):
             continue
 
@@ -837,16 +854,26 @@ def main():
     all_results["Expert"] = expert_results
 
     # ── 2. Evaluate consolidated models on ALL tasks ────────────────────────
-    # 2a. Distillation
-    dist_ckpt = os.path.join(
-        checkpoint_dir, args.tag, "consolidated_distillation.pt",
-    )
-    if os.path.exists(dist_ckpt):
+
+    # Named consolidated methods to discover
+    CONSOLIDATED_METHODS = [
+        ("Distillation",  "consolidated_distillation.pt"),
+        ("One-Shot",      "consolidated_oneshot.pt"),
+        ("Iterative",     "consolidated_iterative.pt"),
+        ("Hybrid",        "consolidated_hybrid.pt"),
+    ]
+
+    for display_name, ckpt_fname in CONSOLIDATED_METHODS:
+        ckpt_path = os.path.join(checkpoint_dir, args.tag, ckpt_fname)
+        if not os.path.exists(ckpt_path):
+            print(f"\nWARNING: {display_name} checkpoint not found, skipping.")
+            continue
+
         print(f"\n{'=' * 60}")
-        print("Evaluating Distillation Consolidated Model")
+        print(f"Evaluating {display_name} Consolidated Model")
         print("=" * 60)
 
-        model = load_model_checkpoint(dist_ckpt, config, device)
+        model = load_model_checkpoint(ckpt_path, config, device)
         method_results = []
         for env_id in task_sequence:
             game = env_id.replace("NoFrameskip-v4", "")
@@ -855,14 +882,12 @@ def main():
             )
             method_results.append(result)
             print(
-                f"  Distillation on {game}: "
-                f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
+                f"  {display_name} on {game}: "
+                f"{result['mean_reward']:.2f} \u00b1 {result['std_reward']:.2f}"
             )
-        all_results["Distillation"] = method_results
-    else:
-        print("\nWARNING: Distillation checkpoint not found, skipping.")
+        all_results[display_name] = method_results
 
-    # 2b. HTCL per-lambda models
+    # Also pick up any HTCL per-lambda checkpoints (legacy grid search)
     import glob as _glob
 
     htcl_pattern = os.path.join(
@@ -870,45 +895,20 @@ def main():
     )
     htcl_ckpts = sorted(_glob.glob(htcl_pattern))
 
-    # Also check for legacy single checkpoint
-    legacy_ckpt = os.path.join(
-        checkpoint_dir, args.tag, "consolidated_htcl.pt",
-    )
+    for ckpt_path in htcl_ckpts:
+        fname = os.path.basename(ckpt_path)
+        lam_str = fname.replace("consolidated_htcl_lam", "").replace(".pt", "")
+        try:
+            lam_val = float(lam_str)
+        except ValueError:
+            continue
 
-    if htcl_ckpts:
-        for ckpt_path in htcl_ckpts:
-            fname = os.path.basename(ckpt_path)
-            lam_str = fname.replace("consolidated_htcl_lam", "").replace(".pt", "")
-            try:
-                lam_val = float(lam_str)
-            except ValueError:
-                continue
-
-            display = f"HTCL (\u03bb={lam_val:g})"
-            print(f"\n{'=' * 60}")
-            print(f"Evaluating {display}")
-            print("=" * 60)
-
-            model = load_model_checkpoint(ckpt_path, config, device)
-            method_results = []
-            for env_id in task_sequence:
-                game = env_id.replace("NoFrameskip-v4", "")
-                result = evaluate_on_task(
-                    model, env_id, config, device, union_actions, num_episodes,
-                )
-                method_results.append(result)
-                print(
-                    f"  {display} on {game}: "
-                    f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
-                )
-            all_results[display] = method_results
-
-    elif os.path.exists(legacy_ckpt):
+        display = f"HTCL (\u03bb={lam_val:g})"
         print(f"\n{'=' * 60}")
-        print("Evaluating HTCL Consolidated Model (legacy)")
+        print(f"Evaluating {display}")
         print("=" * 60)
 
-        model = load_model_checkpoint(legacy_ckpt, config, device)
+        model = load_model_checkpoint(ckpt_path, config, device)
         method_results = []
         for env_id in task_sequence:
             game = env_id.replace("NoFrameskip-v4", "")
@@ -917,12 +917,10 @@ def main():
             )
             method_results.append(result)
             print(
-                f"  HTCL on {game}: "
-                f"{result['mean_reward']:.2f} ± {result['std_reward']:.2f}"
+                f"  {display} on {game}: "
+                f"{result['mean_reward']:.2f} \u00b1 {result['std_reward']:.2f}"
             )
-        all_results["HTCL"] = method_results
-    else:
-        print("\nWARNING: No HTCL checkpoints found, skipping.")
+        all_results[display] = method_results
 
     # ── 3. Generate all visualisations ──────────────────────────────────────
     if len(all_results) > 1:
@@ -935,10 +933,13 @@ def main():
         plot_relative_bar(all_results, figure_dir, "relative_performance")
         plot_summary_table(all_results, figure_dir, "summary_table")
 
-    # Lambda grid search results
+    # Lambda grid search results (if they exist)
     grid_path = os.path.join(checkpoint_dir, args.tag, "htcl_lambda_grid.json")
-    print("\nGenerating lambda grid search plots...")
-    plot_lambda_grid(grid_path, figure_dir)
+    if os.path.exists(grid_path):
+        print("\nGenerating lambda grid search plots...")
+        plot_lambda_grid(grid_path, figure_dir)
+    else:
+        print("\nNo lambda grid search results found, skipping.")
 
     # KL divergence analysis
     print("\nComputing KL divergence between consolidated and expert policies...")
