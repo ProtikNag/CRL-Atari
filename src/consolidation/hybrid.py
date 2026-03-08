@@ -68,6 +68,7 @@ class HybridConsolidator:
         self.num_rounds: int = hybrid_cfg.get(
             "num_rounds", hybrid_cfg.get("num_passes", htcl_cfg.get("num_passes", 3)),
         )
+        self.recompute_fisher: bool = hybrid_cfg.get("recompute_fisher", False)
 
         # Phase 2 (KD refinement) parameters
         dist_cfg = config.get("distillation", {})
@@ -87,6 +88,68 @@ class HybridConsolidator:
         # Internal HTCL helper
         self._htcl = HTCLConsolidator(config, device=device, logger=logger)
         self.fisher_log: List[Dict[str, Any]] = []
+
+    # ------------------------------------------------------------------
+    # Fisher / gradient helper
+    # ------------------------------------------------------------------
+
+    def _compute_avg_fisher_gradient(
+        self,
+        consolidated: DQNNetwork,
+        expert_results: List[Dict[str, Any]],
+        filtered_states_list: List[torch.Tensor],
+        global_sd: Dict[str, torch.Tensor],
+        num_tasks: int,
+        round_idx: int = 0,
+    ) -> tuple:
+        """Compute averaged Fisher and gradient at current model position."""
+        avg_fisher: Dict[str, torch.Tensor] = {
+            name: torch.zeros_like(param)
+            for name, param in consolidated.named_parameters()
+            if param.requires_grad
+        }
+        avg_gradient: Dict[str, torch.Tensor] = {
+            name: torch.zeros_like(param)
+            for name, param in consolidated.named_parameters()
+            if param.requires_grad
+        }
+
+        for task_idx, (result, filt_states) in enumerate(
+            zip(expert_results, filtered_states_list)
+        ):
+            game_name = result["game_name"]
+            valid_actions = result["valid_actions"]
+
+            if self.logger:
+                self.logger.info(
+                    f"  [{game_name}] Computing Fisher/gradient..."
+                )
+
+            consolidated.load_state_dict(global_sd)
+
+            task_fisher = self._htcl.compute_diagonal_fisher(
+                consolidated, valid_actions, states=filt_states,
+            )
+            task_gradient = self._htcl.compute_gradient(
+                consolidated, valid_actions, states=filt_states,
+            )
+
+            for name in task_fisher:
+                avg_fisher[name] += task_fisher[name] / num_tasks
+                avg_gradient[name] += task_gradient[name] / num_tasks
+
+            self._htcl._log_fisher_statistics(
+                task_fisher, round_idx * num_tasks + task_idx, game_name,
+                prefix="hybrid_phase1", is_cumulative=False,
+            )
+
+        self._htcl._log_fisher_statistics(
+            avg_fisher, round_idx * num_tasks + num_tasks,
+            f"round_{round_idx}",
+            prefix="hybrid_phase1", is_cumulative=True,
+        )
+
+        return avg_fisher, avg_gradient
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -123,7 +186,8 @@ class HybridConsolidator:
             self.logger.info(
                 f"Starting Hybrid Consolidation "
                 f"(Phase 1: Joint Taylor K={K}, lambda={lam}, "
-                f"eta_0={self.eta_0}, gamma={self.gamma} | "
+                f"eta_0={self.eta_0}, gamma={self.gamma}, "
+                f"recompute_fisher={self.recompute_fisher} | "
                 f"Phase 2: KD epochs={self.kd_epochs}, lr={self.kd_lr:.1e})..."
             )
 
@@ -159,6 +223,28 @@ class HybridConsolidator:
         }
         head_names = head_weight_names | head_bias_names
 
+        # Pre-compute Fisher when recompute_fisher=False
+        cached_fisher = None
+        cached_gradient = None
+        cached_lam = None
+
+        if not self.recompute_fisher:
+            if self.logger:
+                self.logger.info(
+                    "Computing Fisher/gradient ONCE at initial anchor "
+                    "(recompute_fisher=false; each task seen once)..."
+                )
+            consolidated.load_state_dict(global_sd)
+            cached_fisher, cached_gradient = (
+                self._compute_avg_fisher_gradient(
+                    consolidated, expert_results, filtered_states_list,
+                    global_sd, num_tasks, round_idx=0,
+                )
+            )
+            cached_lam = self._htcl._ensure_lambda_constraint(
+                cached_fisher, lam,
+            )
+
         for round_k in range(K):
             eta_k = self.eta_0 * (self.gamma ** round_k)
 
@@ -168,51 +254,22 @@ class HybridConsolidator:
                     f"(eta_k={eta_k:.6f}) ---"
                 )
 
-            consolidated.load_state_dict(global_sd)
-
-            # Compute averaged Fisher / gradient over ALL experts
-            avg_fisher: Dict[str, torch.Tensor] = {
-                name: torch.zeros_like(param)
-                for name, param in consolidated.named_parameters()
-                if param.requires_grad
-            }
-            avg_gradient: Dict[str, torch.Tensor] = {
-                name: torch.zeros_like(param)
-                for name, param in consolidated.named_parameters()
-                if param.requires_grad
-            }
-
-            for task_idx, (result, filt_states) in enumerate(
-                zip(expert_results, filtered_states_list)
-            ):
-                game_name = result["game_name"]
-                valid_actions = result["valid_actions"]
-
-                if self.logger:
-                    self.logger.info(
-                        f"  [{game_name}] Fisher/gradient at current position..."
-                    )
-
+            # Fisher/gradient (re-computed or cached)
+            if self.recompute_fisher:
                 consolidated.load_state_dict(global_sd)
-
-                task_fisher = self._htcl.compute_diagonal_fisher(
-                    consolidated, valid_actions, states=filt_states,
+                avg_fisher, avg_gradient = (
+                    self._compute_avg_fisher_gradient(
+                        consolidated, expert_results, filtered_states_list,
+                        global_sd, num_tasks, round_idx=round_k,
+                    )
                 )
-                task_gradient = self._htcl.compute_gradient(
-                    consolidated, valid_actions, states=filt_states,
+                eff_lam = self._htcl._ensure_lambda_constraint(
+                    avg_fisher, lam,
                 )
-
-                for name in task_fisher:
-                    avg_fisher[name] += task_fisher[name] / num_tasks
-                    avg_gradient[name] += task_gradient[name] / num_tasks
-
-                self._htcl._log_fisher_statistics(
-                    task_fisher, round_k * num_tasks + task_idx, game_name,
-                    prefix="hybrid_phase1", is_cumulative=False,
-                )
-
-            # Validate lambda
-            eff_lam = self._htcl._ensure_lambda_constraint(avg_fisher, lam)
+            else:
+                avg_fisher = cached_fisher
+                avg_gradient = cached_gradient
+                eff_lam = cached_lam
 
             # Per-expert corrections averaged = u* with d*
             avg_correction: Dict[str, torch.Tensor] = {
