@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRL-Atari: Consolidation Experiment Report</title>
+<style>
+  :root {
+    --blue: #2563EB;
+    --amber: #D97706;
+    --green: #059669;
+    --red: #DC2626;
+    --violet: #7C3AED;
+    --teal: #0891B2;
+    --text: #212529;
+    --text-muted: #6C757D;
+    --bg: #FFFFFF;
+    --border: #DEE2E6;
+    --bg-alt: #F8F9FA;
+    --grid: #E9ECEF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+  h1 {
+    font-family: 'Source Serif 4', 'Georgia', serif;
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+  }
+  h2 {
+    font-family: 'Source Serif 4', 'Georgia', serif;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--blue);
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 2px solid var(--blue);
+  }
+  h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+  p, li { font-size: 0.95rem; }
+  p { margin-bottom: 0.6rem; }
+  ul { padding-left: 1.4rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.3rem; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    background: var(--bg-alt);
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+  }
+  .tag {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-right: 0.4rem;
+  }
+  .tag-blue { background: #DBEAFE; color: var(--blue); }
+  .tag-green { background: #D1FAE5; color: var(--green); }
+  .tag-amber { background: #FEF3C7; color: var(--amber); }
+  .tag-red { background: #FEE2E2; color: var(--red); }
+
+  /* Main results table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  th, td {
+    padding: 0.55rem 0.75rem;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--bg-alt);
+    font-weight: 600;
+    text-align: right;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  tr:hover { background: #F1F5F9; }
+  .best { font-weight: 700; color: var(--green); }
+  .worst { color: var(--red); opacity: 0.7; }
+  .expert-row { background: var(--bg-alt); font-style: italic; }
+
+  /* Method cards */
+  .method-card {
+    background: var(--bg-alt);
+    border-left: 4px solid var(--blue);
+    border-radius: 0 6px 6px 0;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem 0;
+  }
+  .method-card h3 { margin-top: 0; }
+  .method-card.oneshot { border-color: var(--amber); }
+  .method-card.iterative { border-color: var(--violet); }
+  .method-card.hybrid { border-color: var(--green); }
+  .method-card.distillation { border-color: var(--teal); }
+
+  /* Equation block */
+  .eq {
+    background: var(--bg-alt);
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    margin: 0.5rem 0 0.75rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    overflow-x: auto;
+    line-height: 1.8;
+  }
+
+  /* Figure grid */
+  .fig-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1rem 0;
+  }
+  .fig-grid.single { grid-template-columns: 1fr; }
+  .fig-item {
+    text-align: center;
+  }
+  .fig-item img {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .fig-caption {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+  }
+
+  /* Callout boxes */
+  .callout {
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .callout-green {
+    background: #D1FAE5;
+    border-left: 4px solid var(--green);
+  }
+  .callout-amber {
+    background: #FEF3C7;
+    border-left: 4px solid var(--amber);
+  }
+  .callout-red {
+    background: #FEE2E2;
+    border-left: 4px solid var(--red);
+  }
+
+  /* Retention badge */
+  .retention {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 0.9rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+  .retention-high { background: #D1FAE5; color: var(--green); }
+  .retention-mid { background: #FEF3C7; color: var(--amber); }
+  .retention-low { background: #FEE2E2; color: var(--red); }
+
+  .separator {
+    border: none;
+    border-top: 1px solid var(--grid);
+    margin: 1.5rem 0;
+  }
+
+  footer {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+
+<h1>CRL-Atari: Consolidation Experiment Report</h1>
+<p class="subtitle">
+  Protik Nag &nbsp;|&nbsp; March 9, 2026 &nbsp;|&nbsp;
+  <span class="tag tag-blue">Continual RL</span>
+  <span class="tag tag-green">Atari</span>
+  <span class="tag tag-amber">DQN</span>
+</p>
+
+<!-- ────────────────────────────────────────── -->
+<h2>1. Overview</h2>
+
+<p>
+  This report summarizes experiments on consolidating three independently-trained Atari DQN experts
+  (Breakout, SpaceInvaders, Pong) into a single multi-task network.
+  We compare four consolidation strategies derived from a second-order Taylor expansion framework and knowledge distillation.
+  The <strong>Hybrid</strong> method (Taylor + KD) is the clear winner, achieving 30.5% average expert
+  retention and being the only method to produce positive Pong scores.
+</p>
+
+<!-- ────────────────────────────────────────── -->
+<h2>2. Experimental Setup</h2>
+
+<h3>Expert Training</h3>
+<ul>
+  <li><strong>Architecture:</strong> 3-layer CNN (32-64-64 channels, kernels 8-4-3, strides 4-2-1) with 512-unit FC hidden layer and a unified 6-action output head covering the union action space of all three games</li>
+  <li><strong>Algorithm:</strong> Double DQN, 3M timesteps per game, learning rate 1e-4, batch size 32</li>
+  <li><strong>Replay buffer:</strong> 500K transitions, AdamW optimizer, gradient clipping at 10.0</li>
+  <li><strong>Exploration:</strong> Linear epsilon decay from 1.0 to 0.01 over 500K steps</li>
+</ul>
+
+<h3>Evaluation Protocol</h3>
+<ul>
+  <li>30 episodes per game, deterministic policy (argmax over valid actions)</li>
+  <li><code>episodic_life=False</code>, <code>clip_reward=False</code>, max 27K steps/episode</li>
+  <li>Action masking: Q-values for invalid actions set to &minus;&infin; before argmax</li>
+</ul>
+
+<h3>Shared Initialization</h3>
+<p>All four consolidation methods start from the ensemble-mean anchor:</p>
+<div class="eq">w&#772; = (1/N) &Sigma;<sub>i</sub> w<sub>e</sub><sup>(i)</sup></div>
+
+<!-- ────────────────────────────────────────── -->
+<h2>3. Consolidation Methods</h2>
+
+<div class="method-card oneshot">
+  <h3>A. One-Shot Joint Consolidation <span class="tag tag-amber">Section 3, Theorem 3.4</span></h3>
+  <p>
+    All experts are considered simultaneously at the ensemble-mean anchor.
+    Averaged Fisher and gradient are computed across all tasks, then a single closed-form Taylor correction is applied.
+  </p>
+  <div class="eq">
+    F&#772; = (1/N) &Sigma;<sub>i</sub> F<sub>i</sub> &nbsp;&nbsp;|&nbsp;&nbsp;
+    g&#772; = (1/N) &Sigma;<sub>i</sub> g<sub>i</sub><br>
+    u* = (F&#772; + &lambda;&#772; I)<sup>&minus;1</sup> [&lambda;<sub>i</sub> &middot; d* &minus; g&#772;]<br>
+    w<sub>g</sub> = w&#772; + u*
+  </div>
+  <p><strong>Key detail:</strong> With anchor = ensemble mean, the weighted drift centroid d* &approx; 0 (Remark 3.6),
+    so the update simplifies to a Newton step: u* = &minus;(F&#772; + &lambda;&#772; I)<sup>&minus;1</sup> g&#772;.
+    No step size is used.</p>
+  <ul>
+    <li>Fisher computed on 20K high-confidence states per task (top-K by Q-value gap)</li>
+    <li>Action masking on head layers zeroes drift for untrained actions (Remark 7.1)</li>
+  </ul>
+</div>
+
+<div class="method-card iterative">
+  <h3>B. Multi-Round Iterative Consolidation <span class="tag tag-amber">Section 4, Algorithm 1</span></h3>
+  <p>
+    Extends One-Shot to K rounds. Each round re-expands around the current global model, recomputes
+    averaged Fisher/gradient, and applies a Taylor correction with decaying step size.
+  </p>
+  <div class="eq">
+    for k = 0, ..., K&minus;1:<br>
+    &nbsp;&nbsp;Re-expand at w<sub>g</sub><sup>(k)</sup>, compute F&#772;<sub>k</sub>, g&#772;<sub>k</sub><br>
+    &nbsp;&nbsp;u<sub>k</sub>* = (F&#772;<sub>k</sub> + &lambda;&#772; I)<sup>&minus;1</sup> [&lambda;<sub>i</sub> d<sub>k</sub>* &minus; g&#772;<sub>k</sub>]<br>
+    &nbsp;&nbsp;w<sub>g</sub><sup>(k+1)</sup> = w<sub>g</sub><sup>(k)</sup> + &eta;<sub>k</sub> u<sub>k</sub>*
+  </div>
+  <ul>
+    <li>K = 10 rounds, &eta;<sub>0</sub> = 0.9, &gamma; = 0.9 (step-size decay: &eta;<sub>k</sub> = &eta;<sub>0</sub> &middot; &gamma;<sup>k</sup>)</li>
+    <li><code>recompute_fisher=false</code>: Fisher/gradient computed once at initial anchor and cached for all K steps (cheaper, comparable quality)</li>
+    <li>Same action masking and high-confidence filtering as One-Shot</li>
+  </ul>
+</div>
+
+<div class="method-card hybrid">
+  <h3>C. Hybrid (Taylor + KD) <span class="tag tag-green">Section 5, Algorithm 2</span></h3>
+  <p>
+    Two-phase approach combining the best of both worlds. Phase 1 provides a
+    "warm start" via Taylor consolidation; Phase 2 refines via knowledge distillation.
+    The key theoretical insight (Theorem 5.2) is that Phase 1's warm start reduces the
+    KD convergence gap by a factor proportional to the Taylor approximation quality.
+  </p>
+  <p><strong>Phase 1 &mdash; Multi-Round Joint Taylor</strong> (identical to Iterative above):</p>
+  <ul>
+    <li>K = 10 rounds, &eta;<sub>0</sub> = 0.9, &gamma; = 0.9, cached Fisher</li>
+  </ul>
+  <p><strong>Phase 2 &mdash; Knowledge Distillation Refinement:</strong></p>
+  <div class="eq">
+    L<sub>KD</sub> = (1/N) &Sigma;<sub>i</sub> T<sup>2</sup> D<sub>KL</sub>(&sigma;(Q<sub>expert</sub>/T) || &sigma;(Q<sub>student</sub>/T))<br>
+    w<sub>g</sub> &larr; w<sub>g</sub> &minus; &eta;<sub>KD</sub> &nabla; L<sub>KD</sub>
+  </div>
+  <ul>
+    <li>500 KD epochs, lr = 5e-5, temperature T = 2.0, batch size 64</li>
+    <li>Q-values normalized per-task (zero-mean, unit-variance) before softmax to handle reward scale differences</li>
+    <li>Gradient clipping at 1.0, AdamW optimizer</li>
+  </ul>
+</div>
+
+<div class="method-card distillation">
+  <h3>D. Pure Knowledge Distillation <span class="tag tag-amber">Baseline</span></h3>
+  <p>
+    Standard KD without any Taylor warm start. The student starts from the ensemble-mean
+    anchor and learns to match the teacher Q-distributions directly.
+  </p>
+  <ul>
+    <li>500 epochs, lr = 5e-5, T = 2.0, batch size 64</li>
+    <li>Same Q-value normalization and training loop as Hybrid Phase 2</li>
+    <li>Serves as ablation: isolates the value of the Taylor warm start</li>
+  </ul>
+</div>
+
+<!-- ────────────────────────────────────────── -->
+<h2>4. Results</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Breakout</th>
+      <th>SpaceInvaders</th>
+      <th>Pong</th>
+      <th>Avg Retention</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="expert-row">
+      <td>Expert (upper bound)</td>
+      <td>386.0 &plusmn; 35.0</td>
+      <td>1030.8 &plusmn; 257.4</td>
+      <td>19.9 &plusmn; 0.9</td>
+      <td>&mdash;</td>
+    </tr>
+    <tr>
+      <td>One-Shot</td>
+      <td class="worst">2.4 &plusmn; 4.0</td>
+      <td>128.7 &plusmn; 83.8</td>
+      <td class="worst">&minus;21.0 &plusmn; 0.0</td>
+      <td><span class="retention retention-low">&minus;30.7%</span></td>
+    </tr>
+    <tr>
+      <td>Iterative</td>
+      <td>3.0 &plusmn; 4.2</td>
+      <td class="best">215.0 &plusmn; 119.5</td>
+      <td class="worst">&minus;21.0 &plusmn; 0.0</td>
+      <td><span class="retention retention-low">&minus;27.9%</span></td>
+    </tr>
+    <tr>
+      <td>Distillation</td>
+      <td>5.4 &plusmn; 6.5</td>
+      <td class="worst">33.7 &plusmn; 19.4</td>
+      <td>&minus;15.5 &plusmn; 3.3</td>
+      <td><span class="retention retention-low">&minus;24.4%</span></td>
+    </tr>
+    <tr style="background: #ECFDF5;">
+      <td><strong>Hybrid (ours)</strong></td>
+      <td class="best">6.1 &plusmn; 4.0</td>
+      <td>154.2 &plusmn; 72.8</td>
+      <td class="best">15.0 &plusmn; 6.6</td>
+      <td><span class="retention retention-high">30.5%</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Per-Game Expert Retention</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Breakout</th>
+      <th>SpaceInvaders</th>
+      <th>Pong</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>One-Shot</td>
+      <td><span class="retention retention-low">0.6%</span></td>
+      <td><span class="retention retention-low">12.5%</span></td>
+      <td><span class="retention retention-low">&minus;103%</span></td>
+    </tr>
+    <tr>
+      <td>Iterative</td>
+      <td><span class="retention retention-low">0.8%</span></td>
+      <td><span class="retention retention-mid">20.9%</span></td>
+      <td><span class="retention retention-low">&minus;103%</span></td>
+    </tr>
+    <tr>
+      <td>Distillation</td>
+      <td><span class="retention retention-low">1.4%</span></td>
+      <td><span class="retention retention-low">3.3%</span></td>
+      <td><span class="retention retention-low">&minus;76%</span></td>
+    </tr>
+    <tr style="background: #ECFDF5;">
+      <td><strong>Hybrid</strong></td>
+      <td><span class="retention retention-low">1.6%</span></td>
+      <td><span class="retention retention-mid">15.0%</span></td>
+      <td><span class="retention retention-high">75.1%</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-green">
+  <strong>Key finding:</strong> Hybrid is the only method that produces positive Pong rewards (15.0 vs expert 19.9).
+  All 30 evaluation episodes scored &ge; 1, with a median of 17.5.
+  This validates the paper's Theorem 5.2: the Taylor warm start provides a meaningful advantage for KD convergence.
+</div>
+
+<!-- ────────────────────────────────────────── -->
+<h2>5. Visualizations</h2>
+
+<div class="fig-grid">
+  <div class="fig-item">
+    <img src="figures/png/comparison_bar.png" alt="Comparison bar chart">
+    <div class="fig-caption">Fig 1. Mean reward comparison across all methods and games.</div>
+  </div>
+  <div class="fig-item">
+    <img src="figures/png/hybrid_method_progression.png" alt="Method progression">
+    <div class="fig-caption">Fig 2. Progressive improvement: One-Shot &rarr; Iterative &rarr; Hybrid matches the paper's theoretical hierarchy.</div>
+  </div>
+</div>
+
+<div class="fig-grid">
+  <div class="fig-item">
+    <img src="figures/png/hybrid_pong_analysis.png" alt="Hybrid Pong analysis">
+    <div class="fig-caption">Fig 3. Pong episode-level analysis. Hybrid achieves 30/30 positive episodes; all other methods score &minus;21 (worst possible).</div>
+  </div>
+  <div class="fig-item">
+    <img src="figures/png/hybrid_retention_waterfall.png" alt="Retention waterfall">
+    <div class="fig-caption">Fig 4. Expert retention waterfall. Pong retention dominates Hybrid's advantage.</div>
+  </div>
+</div>
+
+<div class="fig-grid single">
+  <div class="fig-item">
+    <img src="figures/png/hybrid_advantage_delta.png" alt="Hybrid advantage delta">
+    <div class="fig-caption">Fig 5. Hybrid advantage over each alternative method. Largest gains come from Pong recovery.</div>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────── -->
+<h2>6. Analysis</h2>
+
+<h3>Why Hybrid Works</h3>
+<p>The Hybrid method combines complementary strengths:</p>
+<ul>
+  <li><strong>Phase 1 (Taylor)</strong> provides a structurally informed starting point by solving a second-order optimization problem that respects the Fisher information geometry. This moves the model close to the expert manifold without gradient-based optimization.</li>
+  <li><strong>Phase 2 (KD)</strong> refines the soft policy distributions, recovering nuances that the diagonal Fisher approximation misses. Starting from the Taylor solution instead of the raw ensemble mean gives KD a massive head start.</li>
+</ul>
+
+<h3>Why Pure Taylor Methods Fail on Pong</h3>
+<p>
+  One-Shot and Iterative both score &minus;21 on Pong (worst possible). The diagonal Fisher approximation
+  captures parameter importance but cannot represent cross-parameter interactions that are critical for
+  Pong's precise paddle control. The ensemble-mean initialization also dilutes Pong's specialized features
+  since Breakout/SpaceInvaders dominate the Fisher spectrum.
+</p>
+
+<h3>Why Pure Distillation Underperforms</h3>
+<p>
+  Starting from the ensemble mean, pure KD must traverse a larger loss landscape.
+  At 500 epochs, Pong shows signs of overfitting (reward decreased from &minus;6.4 at 50 epochs to &minus;15.5 at 500 epochs),
+  while Breakout/SpaceInvaders stagnate at low retention. The Q-value MSE converges to near-zero,
+  but this does not translate to good action-selection quality.
+</p>
+
+<h3>Breakout Remains Difficult</h3>
+<p>
+  All methods retain &lt; 2% of expert Breakout performance. Breakout requires highly specialized
+  feature activations for paddle-ball tracking that are destroyed by ensemble averaging.
+  This suggests that the initialization strategy, not the consolidation method, is the primary bottleneck for Breakout.
+</p>
+
+<!-- ────────────────────────────────────────── -->
+<h2>7. Discussion Points for Next Steps</h2>
+
+<ul>
+  <li><strong>Breakout recovery:</strong> Explore task-weighted initialization (anchor closer to Breakout expert) or progressive consolidation that adds tasks one at a time rather than all-at-once</li>
+  <li><strong>KD early stopping:</strong> Pure distillation regressed after ~50 epochs on Pong. Adding early stopping or a validation-based schedule could improve baseline performance</li>
+  <li><strong>Fisher approximation quality:</strong> The diagonal approximation may be insufficient for games requiring precise control. Block-diagonal or K-FAC approximations are worth investigating</li>
+  <li><strong>Scaling to more games:</strong> With N=3, the ensemble-mean dilution effect is moderate. With N=10+, the anchor quality will degrade further, potentially requiring hierarchical merging</li>
+</ul>
+
+<!-- ────────────────────────────────────────── -->
+
+<footer>
+  Generated March 9, 2026 &nbsp;|&nbsp; CRL-Atari project &nbsp;|&nbsp; 30 eval episodes per game, seed 42
+</footer>
+
+</body>
+</html>
