@@ -57,6 +57,9 @@ class DistillationConsolidator:
         self,
         global_model: DQNNetwork,
         expert_results: List[Dict[str, Any]],
+        snapshot_epochs: Optional[List[int]] = None,
+        snapshot_dir: Optional[str] = None,
+        snapshot_prefix: str = "consolidated_distillation",
     ) -> DQNNetwork:
         """Consolidate expert knowledge via knowledge distillation.
 
@@ -67,13 +70,22 @@ class DistillationConsolidator:
         Q-values are normalized per-task before distillation to ensure scale
         comparability.
 
+        When *snapshot_epochs* is provided, the model state dict is saved
+        at each listed epoch milestone (1-indexed) so that a single long
+        training run produces checkpoints for an epoch-count sweep.
+
         Args:
             global_model: The current global model (student).
             expert_results: List of expert results with state dicts and buffers.
+            snapshot_epochs: Optional list of epoch milestones at which to
+                save intermediate checkpoints (e.g. [10, 100, 500]).
+            snapshot_dir: Directory to write snapshot checkpoints into.
+            snapshot_prefix: Filename prefix for snapshots.
 
         Returns:
             The consolidated (distilled) model.
         """
+        snapshot_set = set(snapshot_epochs) if snapshot_epochs else set()
         if self.logger:
             self.logger.info("Starting Knowledge Distillation consolidation...")
 
@@ -167,6 +179,20 @@ class DistillationConsolidator:
                     f"Distillation epoch {epoch + 1}/{self.distill_epochs} | "
                     f"Avg loss: {avg_loss:.6f}"
                 )
+
+            # Save snapshot at milestone epochs
+            if (epoch + 1) in snapshot_set and snapshot_dir:
+                student.eval()
+                snap_path = os.path.join(
+                    snapshot_dir, f"{snapshot_prefix}_ep{epoch + 1}.pt",
+                )
+                os.makedirs(snapshot_dir, exist_ok=True)
+                torch.save(student.state_dict(), snap_path)
+                if self.logger:
+                    self.logger.info(
+                        f"  Snapshot saved: {snap_path} (epoch {epoch + 1})"
+                    )
+                student.train()
 
         student.eval()
         if self.logger:
