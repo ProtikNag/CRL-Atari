@@ -152,11 +152,19 @@ class HybridConsolidator:
         filtered_states_list: List[torch.Tensor],
         expert_models: Optional[List[DQNNetwork]] = None,
         lambda_override: Optional[float] = None,
+        snapshot_epochs: Optional[List[int]] = None,
+        snapshot_dir: Optional[str] = None,
+        snapshot_prefix: str = "consolidated_hybrid",
     ) -> DQNNetwork:
         """Run hybrid two-phase consolidation (Algorithm 2).
 
         The caller MUST initialize *global_model* to the ensemble mean
         w_bar = (1/N) Sigma_i w_e^(i)  before calling this method.
+
+        When *snapshot_epochs* is provided, the model state dict is saved
+        at each listed KD epoch milestone (1-indexed) so that a single
+        long training run produces checkpoints for an epoch-count sweep.
+        Snapshots are taken during Phase 2 (KD) only.
 
         Args:
             global_model: Model initialised at the ensemble-mean anchor.
@@ -164,10 +172,15 @@ class HybridConsolidator:
             filtered_states_list: High-confidence states per expert.
             expert_models: Frozen expert DQN models.
             lambda_override: Override default lambda for Phase 1.
+            snapshot_epochs: Optional list of KD epoch milestones at which to
+                save intermediate checkpoints (e.g. [10, 100, 500]).
+            snapshot_dir: Directory to write snapshot checkpoints into.
+            snapshot_prefix: Filename prefix for snapshots.
 
         Returns:
             Consolidated DQNNetwork.
         """
+        snapshot_set = set(snapshot_epochs) if snapshot_epochs else set()
         lam = lambda_override if lambda_override is not None else self.lambda_val
         num_tasks = len(expert_results)
         K = self.num_rounds
@@ -442,6 +455,21 @@ class HybridConsolidator:
                     f"  KD epoch {epoch + 1}/{self.kd_epochs} | "
                     f"avg loss: {avg_loss:.6f}"
                 )
+
+            # Save snapshot at milestone KD epochs
+            if (epoch + 1) in snapshot_set and snapshot_dir:
+                import os
+                student.eval()
+                snap_path = os.path.join(
+                    snapshot_dir, f"{snapshot_prefix}_ep{epoch + 1}.pt",
+                )
+                os.makedirs(snapshot_dir, exist_ok=True)
+                torch.save(student.state_dict(), snap_path)
+                if self.logger:
+                    self.logger.info(
+                        f"  Snapshot saved: {snap_path} (KD epoch {epoch + 1})"
+                    )
+                student.train()
 
         student.eval()
 

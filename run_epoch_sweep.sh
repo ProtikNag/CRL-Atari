@@ -14,15 +14,17 @@
 # Sweeps distill_epochs for both "distillation" (pure KD) and "hybrid"
 # (HTCL + KD Phase 2) consolidation methods.
 #
+# Strategy:  Train ONCE for max(EPOCH_VALUES) epochs per method and save
+#            intermediate snapshots at each milestone.  This is more
+#            efficient (one training loop, not five) and more scientifically
+#            valid (same initialization, same data ordering for all points).
+#
 # Sweep values:  10  100  500  5000  10000
 #
-# For each epoch count the script:
-#   1. Consolidates (trains the student/hybrid model)
-#   2. Evaluates the resulting checkpoint on all tasks
-#   3. Saves per-sweep JSON results
-#
-# After all sweep points are done a final comparison aggregates everything
-# and reports geometric-mean retention.
+# For each method the script:
+#   1. Consolidates (one run, snapshots at milestones)
+#   2. Evaluates every snapshot checkpoint on all tasks
+#   3. Aggregates results into a single JSON with geometric-mean retention
 #
 # Pre-requisite: expert checkpoints must exist under
 #   results/checkpoints/<TAG>/expert_*_best.pt
@@ -101,7 +103,7 @@ COMMON_ARGS="--config ${CONFIG} --tag ${TAG} ${DEBUG} ${DEVICE}"
 
 # -- Sweep Configuration ------------------------------------------------------
 
-EPOCH_VALUES="10 100 500 5000 10000"
+EPOCH_VALUES="10,100,500,5000,10000"
 
 # -- Logging -------------------------------------------------------------------
 
@@ -138,38 +140,30 @@ log_msg " Debug:   ${DEBUG:-off}"
 log_msg " Device:  ${DEVICE:-auto}"
 log_msg " Methods: ${METHODS}"
 log_msg " Epochs:  ${EPOCH_VALUES}"
+log_msg " Strategy: single run per method with intermediate snapshots"
 log_msg " Log:     ${LOG_DIR}"
 log_msg "============================================================"
 
 CKPT_DIR="results/checkpoints/${TAG}"
 
-# -- Step 1: Consolidation Sweep ----------------------------------------------
+# -- Step 1: Consolidation (one run per method, snapshots at milestones) -------
 
-log_msg "---- Step 1: Consolidation Sweep ----"
+log_msg "---- Step 1: Consolidation with Snapshots ----"
 
 for METHOD in ${METHODS}; do
-    for EP in ${EPOCH_VALUES}; do
-        SUFFIX="_ep${EP}"
-        CKPT="${CKPT_DIR}/consolidated_${METHOD}${SUFFIX}.pt"
-        if [ -f "${CKPT}" ]; then
-            log_msg "SKIP: ${METHOD} ep=${EP} (checkpoint exists: ${CKPT})"
-            continue
-        fi
-        log_msg "--- ${METHOD} ep=${EP} ---"
-        run_step "consolidate_${METHOD}_ep${EP}" \
-            python scripts/consolidate.py \
-                --method "${METHOD}" \
-                --distill-epochs "${EP}" \
-                --save-suffix "${SUFFIX}" \
-                ${COMMON_ARGS}
-    done
+    log_msg "--- ${METHOD}: training for max epoch with snapshots at {${EPOCH_VALUES}} ---"
+    run_step "consolidate_${METHOD}" \
+        python scripts/consolidate.py \
+            --method "${METHOD}" \
+            --snapshot-epochs "${EPOCH_VALUES}" \
+            ${COMMON_ARGS}
 done
 
-# -- Step 2: Evaluate Each Sweep Checkpoint ------------------------------------
+# -- Step 2: Evaluate Each Snapshot Checkpoint ---------------------------------
 
 log_msg "---- Step 2: Evaluation ----"
 
-# Evaluate experts (only once)
+# Evaluate experts (only once, skip if already exists)
 for EXPERT_CKPT in ${CKPT_DIR}/expert_*_best.pt; do
     if [ -f "${EXPERT_CKPT}" ]; then
         GAME=$(basename "${EXPERT_CKPT}" | sed 's/expert_//;s/_best.pt//')
@@ -187,12 +181,11 @@ for EXPERT_CKPT in ${CKPT_DIR}/expert_*_best.pt; do
     fi
 done
 
-# Evaluate each sweep checkpoint
+# Evaluate each snapshot checkpoint
 for METHOD in ${METHODS}; do
-    for EP in ${EPOCH_VALUES}; do
-        SUFFIX="_ep${EP}"
-        CKPT="${CKPT_DIR}/consolidated_${METHOD}${SUFFIX}.pt"
-        OUT_JSON="results/figures/eval_${METHOD}${SUFFIX}_${TAG}.json"
+    for EP in $(echo "${EPOCH_VALUES}" | tr ',' ' '); do
+        CKPT="${CKPT_DIR}/consolidated_${METHOD}_ep${EP}.pt"
+        OUT_JSON="results/figures/eval_${METHOD}_ep${EP}_${TAG}.json"
         if [ -f "${CKPT}" ]; then
             log_msg "Evaluating: ${METHOD} ep=${EP}"
             run_step "eval_${METHOD}_ep${EP}" \
@@ -201,22 +194,33 @@ for METHOD in ${METHODS}; do
                     --config ${CONFIG} ${DEBUG} ${DEVICE} ${EVAL_EPISODES} \
                     --output "${OUT_JSON}"
         else
-            log_msg "WARN: no checkpoint for ${METHOD} ep=${EP}"
+            log_msg "WARN: no snapshot checkpoint for ${METHOD} ep=${EP}"
         fi
     done
+
+    # Also evaluate the final (full-run) checkpoint
+    FINAL_CKPT="${CKPT_DIR}/consolidated_${METHOD}.pt"
+    FINAL_JSON="results/figures/eval_${METHOD}_${TAG}.json"
+    if [ -f "${FINAL_CKPT}" ]; then
+        log_msg "Evaluating: ${METHOD} (final)"
+        run_step "eval_${METHOD}_final" \
+            python scripts/evaluate.py \
+                --model-path "${FINAL_CKPT}" --all-tasks \
+                --config ${CONFIG} ${DEBUG} ${DEVICE} ${EVAL_EPISODES} \
+                --output "${FINAL_JSON}"
+    fi
 done
 
 # -- Step 3: Aggregate Sweep Results ------------------------------------------
 
 log_msg "---- Step 3: Aggregate Results ----"
 
-# Build a summary JSON with the sweep results using a small Python helper
-python - <<'PYEOF'
+python - "${TAG}" "${METHODS}" "${EPOCH_VALUES}" <<'PYEOF'
 import json, glob, os, sys, math
 
-tag = "${TAG}"
-methods = "${METHODS}".split()
-epochs = [int(x) for x in "${EPOCH_VALUES}".split()]
+tag = sys.argv[1]
+methods = sys.argv[2].split()
+epochs = [int(x) for x in sys.argv[3].split(",")]
 fig_dir = "results/figures"
 
 # Load expert baselines
@@ -234,8 +238,7 @@ sweep_results = {}
 for method in methods:
     sweep_results[method] = {}
     for ep in epochs:
-        suffix = f"_ep{ep}"
-        json_path = os.path.join(fig_dir, f"eval_{method}{suffix}_{tag}.json")
+        json_path = os.path.join(fig_dir, f"eval_{method}_ep{ep}_{tag}.json")
         if not os.path.exists(json_path):
             print(f"  MISSING: {json_path}")
             continue
@@ -247,7 +250,7 @@ for method in methods:
             reward = info["mean_reward"]
             expert_r = expert_rewards.get(game, 1.0)
             pct = (reward / expert_r * 100) if expert_r != 0 else 0.0
-            per_task[game] = {"reward": reward, "retention_pct": pct}
+            per_task[game] = {"reward": round(reward, 2), "retention_pct": round(pct, 2)}
         pcts = [v["retention_pct"] for v in per_task.values()]
         avg_pct = sum(pcts) / len(pcts) if pcts else 0.0
         log_vals = [math.log(max(p, 0.01)) for p in pcts]
@@ -264,10 +267,11 @@ with open(out_path, "w") as f:
 print(f"\nSweep results saved to {out_path}")
 
 # Print summary table
+games = sorted(expert_rewards)
 print("\n" + "=" * 72)
 print(f"  Epoch Sweep Summary (tag={tag})")
 print("=" * 72)
-header = f"{'Method':<14} {'Epochs':>7}  " + "  ".join(f"{g:>12}" for g in sorted(expert_rewards)) + "  Avg%  GMean%"
+header = f"{'Method':<14} {'Epochs':>7}  " + "  ".join(f"{g:>12}" for g in games) + "  Avg%  GMean%"
 print(header)
 print("-" * len(header))
 for method in methods:
@@ -276,7 +280,7 @@ for method in methods:
         if entry is None:
             continue
         row = f"{method:<14} {ep:>7}  "
-        for g in sorted(expert_rewards):
+        for g in games:
             pct = entry["per_task"].get(g, {}).get("retention_pct", 0)
             row += f"  {pct:>10.1f}%"
         row += f"  {entry['avg_retention_pct']:>5.1f} {entry['gmean_retention_pct']:>6.1f}"

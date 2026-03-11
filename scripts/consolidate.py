@@ -264,7 +264,10 @@ def filter_replay_states(
 
 # -- Per-method consolidation runners -----------------------------------------
 
-def run_distillation(config, expert_results, device, logger, tag, save_suffix=""):
+def run_distillation(
+    config, expert_results, device, logger, tag,
+    snapshot_epochs=None,
+):
     """Run Knowledge Distillation consolidation."""
     logger.info("Initializing global model as parameter average of experts...")
     global_model = build_model(config, device)
@@ -276,13 +279,16 @@ def run_distillation(config, expert_results, device, logger, tag, save_suffix=""
         ).mean(dim=0)
     global_model.load_state_dict(init_sd)
 
+    snap_dir = os.path.join(config["logging"]["checkpoint_dir"], tag)
     consolidator = DistillationConsolidator(config, device=device, logger=logger)
-    consolidated = consolidator.consolidate(global_model, expert_results)
-
-    fname = f"consolidated_distillation{save_suffix}.pt"
-    save_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, fname,
+    consolidated = consolidator.consolidate(
+        global_model, expert_results,
+        snapshot_epochs=snapshot_epochs,
+        snapshot_dir=snap_dir,
+        snapshot_prefix="consolidated_distillation",
     )
+
+    save_path = os.path.join(snap_dir, "consolidated_distillation.pt")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
     logger.info(f"Distillation model saved to {save_path}")
@@ -364,7 +370,7 @@ def run_iterative(
 
 def run_hybrid(
     config, expert_results, filtered_states_list, expert_models,
-    device, logger, tag, save_suffix="",
+    device, logger, tag, snapshot_epochs=None,
 ):
     """Run Hybrid Consolidation (HTCL + KD)."""
     global_model = build_model(config, device)
@@ -381,17 +387,18 @@ def run_hybrid(
         hybrid_cfg = config.setdefault("hybrid", {})
         hybrid_cfg["kd_epochs"] = config["debug"].get("hybrid_kd_epochs", 3)
 
+    snap_dir = os.path.join(config["logging"]["checkpoint_dir"], tag)
     consolidator = HybridConsolidator(config, device=device, logger=logger)
     consolidated = consolidator.consolidate(
         global_model, expert_results,
         filtered_states_list=filtered_states_list,
         expert_models=expert_models,
+        snapshot_epochs=snapshot_epochs,
+        snapshot_dir=snap_dir,
+        snapshot_prefix="consolidated_hybrid",
     )
 
-    fname = f"consolidated_hybrid{save_suffix}.pt"
-    save_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, fname,
-    )
+    save_path = os.path.join(snap_dir, "consolidated_hybrid.pt")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
     logger.info(f"Hybrid model saved to {save_path}")
@@ -425,16 +432,14 @@ def main():
         "--tag", type=str, default="default", help="Experiment tag.",
     )
     parser.add_argument(
-        "--distill-epochs",
-        type=int,
-        default=None,
-        help="Override distill_epochs (distillation) / kd_epochs (hybrid).",
-    )
-    parser.add_argument(
-        "--save-suffix",
+        "--snapshot-epochs",
         type=str,
-        default="",
-        help="Suffix appended to checkpoint filename (e.g. '_ep500').",
+        default=None,
+        help=(
+            "Comma-separated epoch milestones for intermediate checkpoints. "
+            "Train once for max(milestones) epochs and snapshot at each. "
+            "Example: '10,100,500,5000,10000'"
+        ),
     )
     args = parser.parse_args()
 
@@ -442,10 +447,13 @@ def main():
         args.config, args.override_config, debug=args.debug,
     )
 
-    # Apply --distill-epochs override to both distillation and hybrid configs
-    if args.distill_epochs is not None:
-        config.setdefault("distillation", {})["distill_epochs"] = args.distill_epochs
-        config.setdefault("hybrid", {})["kd_epochs"] = args.distill_epochs
+    # Parse snapshot epochs and override total epochs to max milestone
+    snapshot_epochs = None
+    if args.snapshot_epochs:
+        snapshot_epochs = sorted(int(x) for x in args.snapshot_epochs.split(","))
+        max_ep = max(snapshot_epochs)
+        config.setdefault("distillation", {})["distill_epochs"] = max_ep
+        config.setdefault("hybrid", {})["kd_epochs"] = max_ep
 
     if args.device:
         device = args.device
@@ -541,7 +549,8 @@ def main():
     # -- Run consolidation --
     if args.method == "distillation":
         consolidated = run_distillation(
-            config, expert_results, device, logger, args.tag, args.save_suffix,
+            config, expert_results, device, logger, args.tag,
+            snapshot_epochs=snapshot_epochs,
         )
     elif args.method == "oneshot":
         consolidated = run_oneshot(
@@ -556,7 +565,7 @@ def main():
     elif args.method == "hybrid":
         consolidated = run_hybrid(
             config, expert_results, filtered_states_list, expert_models,
-            device, logger, args.tag, args.save_suffix,
+            device, logger, args.tag, snapshot_epochs=snapshot_epochs,
         )
     else:
         raise ValueError(f"Unknown method: {args.method}")
