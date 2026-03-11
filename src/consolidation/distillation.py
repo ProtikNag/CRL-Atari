@@ -2,8 +2,12 @@
 Knowledge Distillation consolidation for continual RL.
 
 Trains a student (global) model to mimic the Q-value distributions of
-multiple teacher (expert) models across all tasks. Uses temperature-scaled
-softmax for softer probability distributions.
+multiple teacher (expert) models across all tasks.
+
+Follows the L_KL loss from Rusu et al. (2016) "Policy Distillation":
+    L_KL = Σ_i softmax(q_T / τ) · ln[ softmax(q_T / τ) / softmax(q_S) ]
+where τ is applied ONLY to the teacher (sharpening; default τ=0.01).
+The student uses softmax with no temperature (effectively τ=1).
 """
 
 import torch
@@ -124,31 +128,30 @@ class DistillationConsolidator:
                 for _ in range(num_batches):
                     states = buffer.sample_states(self.batch_size)
 
-                    # Teacher Q-values (normalized + temperature-scaled)
+                    # Teacher Q-values: normalize then sharpen with
+                    # temperature τ (Rusu et al. 2016, Section 3.2).
                     with torch.no_grad():
                         teacher_q = teacher(states)
-                        # Normalize Q-values
                         teacher_q_norm = (teacher_q - q_mean) / q_std
                         teacher_soft = F.softmax(
                             teacher_q_norm / self.temperature, dim=1
                         )
 
-                    # Student Q-values
+                    # Student Q-values: softmax with NO temperature
+                    # (τ_student = 1, per the paper's L_KL formulation).
                     student_q = student(states)
                     student_q_norm = (student_q - q_mean) / q_std
                     student_log_soft = F.log_softmax(
-                        student_q_norm / self.temperature, dim=1
+                        student_q_norm, dim=1
                     )
 
-                    # KL divergence loss (only on valid actions to focus learning)
-                    # But compute on full space to maintain unified representation
-                    kl_loss = F.kl_div(
+                    # KL(teacher || student) — no T² scaling since
+                    # temperature is only applied to the teacher side.
+                    loss = F.kl_div(
                         student_log_soft,
                         teacher_soft,
                         reduction="batchmean",
                     )
-                    # Scale by T^2 (standard distillation scaling)
-                    loss = kl_loss * (self.temperature ** 2)
 
                     optimizer.zero_grad()
                     loss.backward()

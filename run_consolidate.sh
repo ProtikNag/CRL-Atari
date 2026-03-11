@@ -35,6 +35,10 @@
 #   ./run_consolidate.sh --debug --tag debug    # fast debug run
 #   ./run_consolidate.sh --skip-consolidate     # only re-evaluate & re-plot
 #
+# For epoch-count sweep experiments, see:
+#   ./run_epoch_sweep.sh                        # sweeps distill_epochs across
+#                                               # {10, 100, 500, 5000, 10000}
+#
 # Usage (SLURM):
 #   sbatch run_consolidate.sh --tag full_run_v1
 #

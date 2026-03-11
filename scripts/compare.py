@@ -787,6 +787,28 @@ def main():
         json_results[method] = [
             {k: v for k, v in r.items() if k != "all_rewards"} for r in rlist
         ]
+
+    # Compute and save retention + geometric mean (Rusu et al. 2016)
+    if "Expert" in all_results:
+        expert_means = [r["mean_reward"] for r in all_results["Expert"]]
+        retention_summary = {}
+        for method, rlist in all_results.items():
+            if method == "Expert":
+                continue
+            m_means = [r["mean_reward"] for r in rlist]
+            pcts = [
+                mm / abs(em) * 100 if abs(em) > 1e-6 else 100.0
+                for em, mm in zip(expert_means, m_means)
+            ]
+            pcts_clamped = [max(p, 0.01) for p in pcts]
+            geo_mean_pct = float(np.exp(np.mean(np.log(pcts_clamped))))
+            retention_summary[method] = {
+                "per_task_pct": pcts,
+                "avg_pct": float(np.mean(pcts)),
+                "geometric_mean_pct": geo_mean_pct,
+            }
+        json_results["_retention_summary"] = retention_summary
+
     with open(results_path, "w") as f:
         json.dump(json_results, f, indent=2)
     print(f"\nNumerical results saved to {results_path}")
@@ -832,22 +854,41 @@ def main():
                 for em, mm in zip(expert_means, m_means)
             ]
             avg_pct = np.mean(pcts)
+            # Geometric mean of retention (Rusu et al. 2016, Policy Distillation)
+            # Clamp negatives to a small positive value to allow gmean computation
+            pcts_clamped = [max(p, 0.01) for p in pcts]
+            geo_mean_pct = float(np.exp(np.mean(np.log(pcts_clamped))))
             pct_str = "  ".join(f"{p:6.1f}%" for p in pcts)
-            print(f"  {method:<20} {pct_str}  (avg {avg_pct:.1f}%)")
+            print(
+                f"  {method:<20} {pct_str}  "
+                f"(avg {avg_pct:.1f}%, gmean {geo_mean_pct:.1f}%)"
+            )
 
-    # LaTeX table
+    # LaTeX table (with geometric mean column)
     print("\nLaTeX table:")
-    print("\\begin{tabular}{l" + "c" * len(task_sequence) + "c}")
+    print("\\begin{tabular}{l" + "c" * len(task_sequence) + "cc}")
     print("\\toprule")
     cols = " & ".join(
         env_id.replace("NoFrameskip-v4", "") for env_id in task_sequence
     )
-    print(f"Method & {cols} & Average \\\\")
+    print(f"Method & {cols} & Average & Geo. Mean \\\\")
     print("\\midrule")
     for method, rlist in all_results.items():
         rewards = [r["mean_reward"] for r in rlist]
         vals = " & ".join(f"{r:.1f}" for r in rewards)
-        print(f"{method} & {vals} & {np.mean(rewards):.1f} \\\\")
+        avg_r = np.mean(rewards)
+        # Geometric mean retention for consolidated methods
+        if method == "Expert" or "Expert" not in all_results:
+            print(f"{method} & {vals} & {avg_r:.1f} & --- \\\\")
+        else:
+            m_means = [r["mean_reward"] for r in rlist]
+            pcts = [
+                mm / abs(em) * 100 if abs(em) > 1e-6 else 100.0
+                for em, mm in zip(expert_means, m_means)
+            ]
+            pcts_clamped = [max(p, 0.01) for p in pcts]
+            geo_mean_pct = float(np.exp(np.mean(np.log(pcts_clamped))))
+            print(f"{method} & {vals} & {avg_r:.1f} & {geo_mean_pct:.1f}\\% \\\\")
     print("\\bottomrule")
     print("\\end{tabular}")
 
