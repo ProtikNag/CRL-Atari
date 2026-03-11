@@ -264,7 +264,7 @@ def filter_replay_states(
 
 # -- Per-method consolidation runners -----------------------------------------
 
-def run_distillation(config, expert_results, device, logger, tag):
+def run_distillation(config, expert_results, device, logger, tag, save_suffix=""):
     """Run Knowledge Distillation consolidation."""
     logger.info("Initializing global model as parameter average of experts...")
     global_model = build_model(config, device)
@@ -279,8 +279,9 @@ def run_distillation(config, expert_results, device, logger, tag):
     consolidator = DistillationConsolidator(config, device=device, logger=logger)
     consolidated = consolidator.consolidate(global_model, expert_results)
 
+    fname = f"consolidated_distillation{save_suffix}.pt"
     save_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, "consolidated_distillation.pt",
+        config["logging"]["checkpoint_dir"], tag, fname,
     )
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
@@ -363,7 +364,7 @@ def run_iterative(
 
 def run_hybrid(
     config, expert_results, filtered_states_list, expert_models,
-    device, logger, tag,
+    device, logger, tag, save_suffix="",
 ):
     """Run Hybrid Consolidation (HTCL + KD)."""
     global_model = build_model(config, device)
@@ -387,8 +388,9 @@ def run_hybrid(
         expert_models=expert_models,
     )
 
+    fname = f"consolidated_hybrid{save_suffix}.pt"
     save_path = os.path.join(
-        config["logging"]["checkpoint_dir"], tag, "consolidated_hybrid.pt",
+        config["logging"]["checkpoint_dir"], tag, fname,
     )
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(consolidated.state_dict(), save_path)
@@ -422,11 +424,28 @@ def main():
     parser.add_argument(
         "--tag", type=str, default="default", help="Experiment tag.",
     )
+    parser.add_argument(
+        "--distill-epochs",
+        type=int,
+        default=None,
+        help="Override distill_epochs (distillation) / kd_epochs (hybrid).",
+    )
+    parser.add_argument(
+        "--save-suffix",
+        type=str,
+        default="",
+        help="Suffix appended to checkpoint filename (e.g. '_ep500').",
+    )
     args = parser.parse_args()
 
     config = get_effective_config(
         args.config, args.override_config, debug=args.debug,
     )
+
+    # Apply --distill-epochs override to both distillation and hybrid configs
+    if args.distill_epochs is not None:
+        config.setdefault("distillation", {})["distill_epochs"] = args.distill_epochs
+        config.setdefault("hybrid", {})["kd_epochs"] = args.distill_epochs
 
     if args.device:
         device = args.device
@@ -522,7 +541,7 @@ def main():
     # -- Run consolidation --
     if args.method == "distillation":
         consolidated = run_distillation(
-            config, expert_results, device, logger, args.tag,
+            config, expert_results, device, logger, args.tag, args.save_suffix,
         )
     elif args.method == "oneshot":
         consolidated = run_oneshot(
@@ -537,7 +556,7 @@ def main():
     elif args.method == "hybrid":
         consolidated = run_hybrid(
             config, expert_results, filtered_states_list, expert_models,
-            device, logger, args.tag,
+            device, logger, args.tag, args.save_suffix,
         )
     else:
         raise ValueError(f"Unknown method: {args.method}")

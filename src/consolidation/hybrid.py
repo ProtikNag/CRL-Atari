@@ -7,8 +7,9 @@ Two-phase approach:
                Each round re-expands at w_g, computes averaged Fisher and gradient
                over all experts jointly, and applies a single Taylor update with
                step size eta_0 * gamma^k.
-    Phase 2 -- Knowledge-distillation fine-tuning:
-               L_KD = (1/N) Sigma_i T^2 D_KL(sigma(Q_expert(B_i)/T) || sigma(Q_student(B_i)/T))
+    Phase 2 -- Knowledge-distillation fine-tuning (Rusu et al. 2016, L_KL):
+               L_KD = (1/N) Σ_i D_KL(softmax(Q_expert(B_i)/τ) || softmax(Q_student(B_i)))
+               where τ is applied ONLY to the teacher (τ=0.01, sharpening).
                w_g <- w_g - eta_KD grad_{w_g} L_KD   for T distillation epochs.
 
 The rationale (Theorem 5.2, Corollary 5.4) is that Phase 1 provides a warm
@@ -341,7 +342,8 @@ class HybridConsolidator:
 
         # ══════════════════════════════════════════════════════════════
         # Phase 2: Knowledge Distillation refinement (Algorithm 2, lines 16-19)
-        # L_KD = (1/N) Sigma_i T^2 D_KL(sigma(Q_e(B_i)/T) || sigma(Q_g(B_i)/T))
+        # L_KD = (1/N) Σ_i D_KL(softmax(Q_e(B_i)/τ) || softmax(Q_g(B_i)))
+        # Temperature τ applied ONLY to teacher (Rusu et al. 2016, L_KL).
         # ══════════════════════════════════════════════════════════════
         if self.logger:
             self.logger.info(
@@ -407,21 +409,22 @@ class HybridConsolidator:
                     with torch.no_grad():
                         teacher_q = teacher(states)
                         teacher_q_norm = (teacher_q - q_mean) / q_std
+                        # Teacher uses temperature τ (sharpening)
                         teacher_soft = F.softmax(teacher_q_norm / T, dim=1)
 
                     student_q = student(states)
                     student_q_norm = (student_q - q_mean) / q_std
+                    # Student uses NO temperature (τ=1, per L_KL)
                     student_log_soft = F.log_softmax(
-                        student_q_norm / T, dim=1,
+                        student_q_norm, dim=1,
                     )
 
-                    # D_KL(teacher || student)  scaled by T^2
-                    kl_loss = F.kl_div(
+                    # D_KL(teacher || student) — no T² scaling
+                    loss = F.kl_div(
                         student_log_soft,
                         teacher_soft,
                         reduction="batchmean",
                     )
-                    loss = kl_loss * (T ** 2)
 
                     optimizer.zero_grad()
                     loss.backward()

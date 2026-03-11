@@ -89,8 +89,10 @@ consolidation:
 buffer_size_per_task: 100_000
 
 # --- Knowledge Distillation ---
+# L_KL from Rusu et al. (2016) "Policy Distillation":
+# Temperature τ applied ONLY to teacher (sharpening). Paper uses τ=0.01.
 distillation:
-  temperature: 2.0
+  temperature: 0.01
   alpha: 0.5  # weight of distillation loss vs task loss
   distill_epochs: 500
   distill_lr: 5.0e-5
@@ -163,7 +165,7 @@ hybrid:
   # Phase 2 (KD refinement) settings — must match distillation for fair comparison
   kd_epochs: 500
   kd_lr: 5.0e-5
-  temperature: 2.0
+  temperature: 0.01   # τ, teacher-only sharpening (Rusu et al. 2016)
   kd_batch_size: 64
 
 # --- Evaluation ---
