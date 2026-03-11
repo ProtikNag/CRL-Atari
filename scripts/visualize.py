@@ -691,7 +691,7 @@ def main() -> None:
     """Parse arguments and generate all visualizations."""
     parser = argparse.ArgumentParser(description="CRL-Atari Visualization Generator")
     parser.add_argument("--results-dir", type=str, default="results")
-    parser.add_argument("--tag", type=str, default="debug")
+    parser.add_argument("--tag", type=str, default="default")
     args = parser.parse_args()
 
     setup_style()
