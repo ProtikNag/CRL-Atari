@@ -1,28 +1,32 @@
 """
-Loss landscape visualization for Atari expert models.
+Loss landscape visualization for Atari CRL consolidation.
 
-Projects the three expert parameter vectors onto a 2D plane via PCA,
-then evaluates the DQN Bellman (TD) loss at a grid of interpolated
-model weights. Produces:
-  1. Per-game loss contour plots with expert positions marked
-  2. Combined contour overlay showing all three landscapes
-  3. 3D surface plot of the summed loss landscape
+Projects expert and consolidated parameter vectors onto a 2D PCA plane,
+then evaluates the DQN Bellman (TD) loss at a grid of interpolated model
+weights.
 
-Follows the methodology of Li et al. (2018) "Visualizing the Loss
-Landscape of Neural Nets" with filter-normalized random directions
-replaced by PCA of the actual expert weight vectors.
+Produces:
+  1. Per-game 2D contour plots showing each game's loss landscape with
+     the three expert minima marked (star markers)
+  2. Combined 2D contour of across-game summed loss with all models
+     plotted (experts + one-shot + iterative + hybrid + distillation)
+  3. Combined 3D surface with the same model positions on the surface
+
+Methodology follows Li et al. (2018) "Visualizing the Loss Landscape of
+Neural Nets" with PCA directions derived from expert weight vectors and
+filter-wise normalization.
 
 Usage:
     python scripts/visualize_loss_landscape.py [--config configs/base.yaml]
-        [--tag default] [--grid-size 41] [--range 1.0]
-        [--eval-samples 512] [--device mps]
+        [--tag default] [--grid-size 31] [--range 1.0]
+        [--eval-samples 256] [--device mps]
 """
 
 import argparse
 import json
 import os
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -32,7 +36,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-import matplotlib.gridspec as gridspec
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -47,41 +50,54 @@ from src.utils.config import get_effective_config
 from src.utils.seed import set_seed
 
 
-# ── Modern dark palette ──────────────────────────────────────────────
+# -- Palette: light warm background, saturated accents -----------------
+
+BG        = "#F9FAFB"   # gray-50  (very light, not pure white)
+BG_PANEL  = "#F3F4F6"   # gray-100
+TEXT      = "#111827"    # gray-900
+TEXT_DIM  = "#6B7280"    # gray-500
+GRID_CLR  = "#E5E7EB"   # gray-200
+BORDER    = "#D1D5DB"    # gray-300
+
+# Expert colors (same indigo / amber / emerald from previous visualizations)
 GAME_COLORS = {
-    "Pong":          "#6366F1",   # indigo
-    "Breakout":      "#F59E0B",   # amber
-    "SpaceInvaders": "#10B981",   # emerald
+    "Pong":          "#6366F1",   # indigo-500
+    "Breakout":      "#F59E0B",   # amber-500
+    "SpaceInvaders": "#10B981",   # emerald-500
 }
-CONSOLIDATED_COLOR = "#F43F5E"    # rose-500
 
-BG        = "#0F172A"
-BG_PANEL  = "#1E293B"
-TEXT      = "#F8FAFC"
-TEXT_DIM  = "#94A3B8"
-GRID_CLR  = "#334155"
+# Consolidated method colors and markers
+METHOD_STYLE = {
+    "One-Shot":     {"color": "#EF4444", "marker": "D", "size": 110},  # red-500
+    "Iterative":    {"color": "#8B5CF6", "marker": "s", "size": 100},  # violet-500
+    "Hybrid":       {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
+    "Distillation": {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
+}
 
-
-# Per-game contour colormaps (light to saturated)
+# Per-game contour colormaps (light bg friendly)
 GAME_CMAPS = {
     "Pong": LinearSegmentedColormap.from_list(
-        "indigo", ["#0F172A", "#312E81", "#4338CA", "#6366F1", "#A5B4FC", "#E0E7FF"]),
+        "indigo_l", ["#EEF2FF", "#C7D2FE", "#818CF8", "#6366F1",
+                      "#4338CA", "#312E81"]),
     "Breakout": LinearSegmentedColormap.from_list(
-        "amber", ["#0F172A", "#78350F", "#B45309", "#F59E0B", "#FCD34D", "#FFFBEB"]),
+        "amber_l", ["#FFFBEB", "#FDE68A", "#FBBF24", "#F59E0B",
+                     "#B45309", "#78350F"]),
     "SpaceInvaders": LinearSegmentedColormap.from_list(
-        "emerald", ["#0F172A", "#064E3B", "#047857", "#10B981", "#6EE7B7", "#D1FAE5"]),
+        "emerald_l", ["#ECFDF5", "#A7F3D0", "#34D399", "#10B981",
+                       "#047857", "#064E3B"]),
 }
 COMBINED_CMAP = LinearSegmentedColormap.from_list(
-    "slate_fire", ["#0F172A", "#1E3A5F", "#475569", "#94A3B8", "#F59E0B", "#EF4444"],
+    "warm_depth", ["#F9FAFB", "#DBEAFE", "#93C5FD", "#60A5FA",
+                    "#FBBF24", "#F97316", "#EF4444", "#991B1B"],
 )
 
 
 def _apply_style() -> None:
-    """Dark modern matplotlib style."""
+    """Light, minimalistic matplotlib style."""
     plt.rcParams.update({
         "figure.facecolor":    BG,
         "axes.facecolor":      BG_PANEL,
-        "axes.edgecolor":      GRID_CLR,
+        "axes.edgecolor":      BORDER,
         "axes.labelcolor":     TEXT,
         "axes.grid":           False,
         "text.color":          TEXT,
@@ -89,8 +105,8 @@ def _apply_style() -> None:
         "ytick.color":         TEXT_DIM,
         "xtick.labelsize":     10,
         "ytick.labelsize":     10,
-        "legend.facecolor":    BG_PANEL,
-        "legend.edgecolor":    GRID_CLR,
+        "legend.facecolor":    BG,
+        "legend.edgecolor":    BORDER,
         "legend.fontsize":     11,
         "font.family":         "sans-serif",
         "font.sans-serif":     ["Inter", "SF Pro Display", "Helvetica Neue",
@@ -102,242 +118,161 @@ def _apply_style() -> None:
     })
 
 
-# ── Utilities ────────────────────────────────────────────────────────
+# -- Utilities ---------------------------------------------------------
 
 def build_model(config: dict, device: str) -> DQNNetwork:
     """Construct a DQN model from config."""
-    model_cfg = config["model"]
+    m = config["model"]
     return DQNNetwork(
         in_channels=config["env"]["frame_stack"],
-        conv_channels=model_cfg["conv_channels"],
-        conv_kernels=model_cfg["conv_kernels"],
-        conv_strides=model_cfg["conv_strides"],
-        fc_hidden=model_cfg["fc_hidden"],
-        unified_action_dim=model_cfg["unified_action_dim"],
-        dueling=model_cfg.get("dueling", False),
+        conv_channels=m["conv_channels"], conv_kernels=m["conv_kernels"],
+        conv_strides=m["conv_strides"], fc_hidden=m["fc_hidden"],
+        unified_action_dim=m["unified_action_dim"],
+        dueling=m.get("dueling", False),
     ).to(device)
 
 
-def flatten_params(state_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
+def flatten_params(sd: Dict[str, torch.Tensor]) -> torch.Tensor:
     """Flatten a state dict into a single 1-D vector."""
-    return torch.cat([v.flatten().float() for v in state_dict.values()])
+    return torch.cat([v.flatten().float() for v in sd.values()])
 
 
-def unflatten_params(
-    flat: torch.Tensor,
-    reference_sd: Dict[str, torch.Tensor],
-) -> Dict[str, torch.Tensor]:
+def unflatten_params(flat: torch.Tensor,
+                     ref: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """Reshape a flat vector back into a state dict."""
-    sd = {}
-    offset = 0
-    for name, ref in reference_sd.items():
-        numel = ref.numel()
-        sd[name] = flat[offset:offset + numel].reshape(ref.shape)
-        offset += numel
+    sd, offset = {}, 0
+    for name, t in ref.items():
+        n = t.numel()
+        sd[name] = flat[offset:offset + n].reshape(t.shape)
+        offset += n
     return sd
 
 
 def filter_normalize(direction: torch.Tensor, ref_flat: torch.Tensor,
                      shapes: List[Tuple[str, torch.Size]]) -> torch.Tensor:
-    """Apply filter-wise normalization (Li et al. 2018, Sec 4).
-
-    For conv layers, normalize each filter; for FC, normalize each row.
-    This prevents directions from being dominated by layers with large norms.
-    """
+    """Apply filter-wise normalization (Li et al. 2018, Sec 4)."""
     normed = torch.zeros_like(direction)
     offset = 0
-    for name, shape in shapes:
-        numel = shape.numel()
-        d_slice = direction[offset:offset + numel].reshape(shape)
-        w_slice = ref_flat[offset:offset + numel].reshape(shape)
-
+    for _, shape in shapes:
+        n = shape.numel()
+        d = direction[offset:offset + n].reshape(shape)
+        w = ref_flat[offset:offset + n].reshape(shape)
         if len(shape) >= 2:
-            # Normalize per filter/row
             for i in range(shape[0]):
-                d_filter = d_slice[i]
-                w_filter = w_slice[i]
-                w_norm = w_filter.norm()
-                d_norm = d_filter.norm()
-                if d_norm > 1e-10 and w_norm > 1e-10:
-                    d_slice[i] = d_filter * (w_norm / d_norm)
+                wn, dn = w[i].norm(), d[i].norm()
+                if dn > 1e-10 and wn > 1e-10:
+                    d[i] = d[i] * (wn / dn)
         else:
-            # 1-D params (bias): normalize globally
-            w_norm = w_slice.norm()
-            d_norm = d_slice.norm()
-            if d_norm > 1e-10 and w_norm > 1e-10:
-                d_slice = d_slice * (w_norm / d_norm)
-
-        normed[offset:offset + numel] = d_slice.flatten()
-        offset += numel
+            wn, dn = w.norm(), d.norm()
+            if dn > 1e-10 and wn > 1e-10:
+                d = d * (wn / dn)
+        normed[offset:offset + n] = d.flatten()
+        offset += n
     return normed
 
 
 def compute_pca_directions(
     expert_sds: List[Dict[str, torch.Tensor]],
-    reference_sd: Dict[str, torch.Tensor],
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[torch.Tensor]]:
-    """Compute 2 PCA directions from the expert weight vectors.
-
-    Centers at the mean of the experts, then runs SVD on the matrix
-    of centered parameter vectors.
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute two PCA directions from the expert weight vectors.
 
     Returns:
-        (dir1, dir2, center, [proj_coords for each expert])
+        (dir1, dir2, center)
     """
-    flat_vecs = [flatten_params(sd) for sd in expert_sds]
-    mat = torch.stack(flat_vecs, dim=0).float()  # (N, D)
+    mat = torch.stack([flatten_params(sd) for sd in expert_sds], dim=0).float()
     center = mat.mean(dim=0)
-
-    centered = mat - center.unsqueeze(0)  # (N, D)
-
-    # SVD on the centered matrix
+    centered = mat - center.unsqueeze(0)
     U, S, Vh = torch.linalg.svd(centered, full_matrices=False)
-    # Vh[0] and Vh[1] are the two principal directions
-    dir1 = Vh[0]  # (D,)
-    dir2 = Vh[1] if Vh.shape[0] > 1 else torch.randn_like(dir1)
+    d1 = Vh[0] / Vh[0].norm()
+    d2 = (Vh[1] / Vh[1].norm()) if Vh.shape[0] > 1 else torch.randn_like(d1)
+    return d1, d2, center
 
-    # Normalize directions to unit norm
-    dir1 = dir1 / dir1.norm()
-    dir2 = dir2 / dir2.norm()
 
-    # Project each expert onto the 2D plane
-    proj_coords = []
-    for v in flat_vecs:
-        diff = v - center
-        x = torch.dot(diff, dir1).item()
-        y = torch.dot(diff, dir2).item()
-        proj_coords.append((x, y))
-
-    return dir1, dir2, center, proj_coords
+def project(sd: Dict[str, torch.Tensor], center: torch.Tensor,
+            d1: torch.Tensor, d2: torch.Tensor) -> Tuple[float, float]:
+    """Project a state dict onto the 2D PCA plane."""
+    diff = flatten_params(sd) - center
+    return torch.dot(diff, d1).item(), torch.dot(diff, d2).item()
 
 
 def collect_eval_data(
-    env_id: str,
-    model: DQNNetwork,
-    config: dict,
-    device: str,
-    num_samples: int,
-    union_actions: list,
+    env_id: str, model: DQNNetwork, config: dict, device: str,
+    num_samples: int, union_actions: list,
 ) -> ReplayBuffer:
     """Collect transitions by running the expert policy."""
-    env_cfg = config["env"]
+    ec = config["env"]
     env = make_atari_env(
         env_id=env_id, union_actions=union_actions, seed=config["seed"],
-        frame_stack=env_cfg["frame_stack"], frame_skip=env_cfg["frame_skip"],
-        screen_size=env_cfg["screen_size"], noop_max=env_cfg["noop_max"],
-        episodic_life=env_cfg["episodic_life"], clip_reward=env_cfg["clip_reward"],
+        frame_stack=ec["frame_stack"], frame_skip=ec["frame_skip"],
+        screen_size=ec["screen_size"], noop_max=ec["noop_max"],
+        episodic_life=ec["episodic_life"], clip_reward=ec["clip_reward"],
     )
-
-    valid_actions = get_valid_actions(env_id, union_actions)
+    valid = get_valid_actions(env_id, union_actions)
     buf = ReplayBuffer(
-        capacity=num_samples, frame_stack=env_cfg["frame_stack"],
-        frame_shape=(env_cfg["screen_size"], env_cfg["screen_size"]),
-        device=device,
+        capacity=num_samples, frame_stack=ec["frame_stack"],
+        frame_shape=(ec["screen_size"], ec["screen_size"]), device=device,
     )
     model.eval()
     state, _ = env.reset()
-
     while buf.size < num_samples:
         with torch.no_grad():
-            state_t = torch.from_numpy(state).float().unsqueeze(0).to(device) / 255.0
-            q_vals = model(state_t)
-            mask = torch.full((model.unified_action_dim,), float("-inf"), device=device)
-            mask[valid_actions] = 0.0
-            action = (q_vals + mask.unsqueeze(0)).argmax(dim=1).item()
-
-        next_state, reward, terminated, truncated, _ = env.step(action)
-        buf.push(state, action, reward, next_state, terminated)
-
-        if terminated or truncated:
-            state, _ = env.reset()
-        else:
-            state = next_state
-
+            st = torch.from_numpy(state).float().unsqueeze(0).to(device) / 255.0
+            q = model(st)
+            mask = torch.full((model.unified_action_dim,), float("-inf"),
+                              device=device)
+            mask[valid] = 0.0
+            action = (q + mask.unsqueeze(0)).argmax(dim=1).item()
+        ns, rew, term, trunc, _ = env.step(action)
+        buf.push(state, action, rew, ns, term)
+        state = (env.reset()[0] if term or trunc else ns)
     env.close()
     return buf
 
 
-def evaluate_bellman_loss(
-    model: DQNNetwork,
-    state_dict: Dict[str, torch.Tensor],
-    replay_buffer: ReplayBuffer,
-    device: str,
-    num_samples: int = 512,
-    gamma: float = 0.99,
+def evaluate_loss(
+    model: DQNNetwork, sd: Dict[str, torch.Tensor],
+    buf: ReplayBuffer, device: str,
+    num_samples: int = 256, gamma: float = 0.99,
 ) -> float:
-    """Evaluate the Huber (smooth-L1) Bellman loss at given weights.
-
-    Uses the same weights as both policy and target network (no separate
-    target net), which means minima correspond to fixed points of the
-    Bellman operator.
-    """
-    model.load_state_dict(state_dict)
+    """Evaluate Bellman (smooth-L1) loss at given weights."""
+    model.load_state_dict(sd)
     model.eval()
-
-    states, actions, rewards, next_states, dones = replay_buffer.sample(
-        min(num_samples, replay_buffer.size),
-    )
-
+    states, actions, rewards, next_states, dones = buf.sample(
+        min(num_samples, buf.size))
     with torch.no_grad():
-        # Current Q
-        q_all = model(states)
-        q_taken = q_all.gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        # Bootstrap from same network (simplified; no target net)
-        q_next = model(next_states)
-        max_q_next = q_next.max(dim=1).values
-        target = rewards + gamma * max_q_next * (1.0 - dones)
-
-        loss = F.smooth_l1_loss(q_taken, target)
-
-    return loss.item()
+        q = model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        q_next_max = model(next_states).max(dim=1).values
+        target = rewards + gamma * q_next_max * (1.0 - dones)
+        return F.smooth_l1_loss(q, target).item()
 
 
 def _save(fig: plt.Figure, save_dir: str, name: str) -> None:
     """Save figure as PNG and SVG."""
-    png_dir = os.path.join(save_dir, "png")
-    svg_dir = os.path.join(save_dir, "svg")
-    os.makedirs(png_dir, exist_ok=True)
-    os.makedirs(svg_dir, exist_ok=True)
-    png_path = os.path.join(png_dir, f"{name}.png")
-    svg_path = os.path.join(svg_dir, f"{name}.svg")
-    fig.savefig(png_path, dpi=300, facecolor=fig.get_facecolor())
-    fig.savefig(svg_path, facecolor=fig.get_facecolor())
-    print(f"  Saved: {png_path}")
-    print(f"  Saved: {svg_path}")
+    for sub, ext in [("png", "png"), ("svg", "svg")]:
+        d = os.path.join(save_dir, sub)
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, f"{name}.{ext}")
+        fig.savefig(p, dpi=300, facecolor=fig.get_facecolor())
+        print(f"  Saved: {p}")
 
 
-# ── Main ─────────────────────────────────────────────────────────────
+# -- Main --------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Loss landscape visualization for Atari expert models.",
+        description="Loss landscape visualization for Atari CRL.",
     )
     parser.add_argument("--config", type=str, default="configs/base.yaml")
     parser.add_argument("--tag", type=str, default="default")
-    parser.add_argument(
-        "--grid-size", type=int, default=41,
-        help="Number of grid points per axis (41 -> 1681 evaluations per game).",
-    )
-    parser.add_argument(
-        "--range", type=float, default=1.0,
-        help="Multiplier on the coordinate range. 1.0 means the grid extends "
-             "to ~1x the max expert projection distance from center.",
-    )
-    parser.add_argument(
-        "--eval-samples", type=int, default=512,
-        help="Number of replay transitions for loss evaluation at each grid point.",
-    )
-    parser.add_argument(
-        "--collect-samples", type=int, default=2000,
-        help="Transitions to collect per game for evaluation.",
-    )
+    parser.add_argument("--grid-size", type=int, default=31)
+    parser.add_argument("--range", type=float, default=1.0)
+    parser.add_argument("--eval-samples", type=int, default=256)
+    parser.add_argument("--collect-samples", type=int, default=1000)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--gamma", type=float, default=0.99)
     args = parser.parse_args()
 
     _apply_style()
-
     config = get_effective_config(args.config)
 
     if args.device:
@@ -350,421 +285,298 @@ def main() -> None:
         device = "cpu"
 
     set_seed(config["seed"])
-
     union_actions = compute_union_action_space(config["task_sequence"])
     config["model"]["unified_action_dim"] = len(union_actions)
-    print(f"Union actions: {union_actions} ({len(union_actions)} actions)")
+    print(f"Union actions: {union_actions} ({len(union_actions)})")
     print(f"Device: {device}")
-    print(f"Grid: {args.grid_size}x{args.grid_size} = "
-          f"{args.grid_size**2} points per game\n")
+    print(f"Grid: {args.grid_size}x{args.grid_size}\n")
 
-    checkpoint_dir = config["logging"]["checkpoint_dir"]
-    figure_dir = config["logging"]["figure_dir"]
+    ckpt_dir = os.path.join(config["logging"]["checkpoint_dir"], args.tag)
+    fig_dir = config["logging"]["figure_dir"]
 
-    summary_path = os.path.join(checkpoint_dir, args.tag, "expert_summary.json")
-    with open(summary_path) as f:
+    with open(os.path.join(ckpt_dir, "expert_summary.json")) as f:
         summary = json.load(f)
 
-    # ── Load expert models and collect evaluation data ────────────────
+    # -- Load experts ---------------------------------------------------
     expert_sds: List[Dict[str, torch.Tensor]] = []
     game_names: List[str] = []
     game_buffers: Dict[str, ReplayBuffer] = {}
-    reference_model = build_model(config, device)
 
-    for expert_info in summary["expert_results"]:
-        game_name = expert_info["game_name"]
-        env_id = expert_info["env_id"]
-        game_names.append(game_name)
-
-        ckpt_path = os.path.join(
-            checkpoint_dir, args.tag, f"expert_{game_name}_best.pt",
+    for info in summary["expert_results"]:
+        gname, env_id = info["game_name"], info["env_id"]
+        game_names.append(gname)
+        ckpt = torch.load(
+            os.path.join(ckpt_dir, f"expert_{gname}_best.pt"),
+            map_location=device, weights_only=False,
         )
-        print(f"Loading expert: {game_name}")
-        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
         sd = ckpt["policy_net"]
         expert_sds.append(sd)
 
-        # Collect evaluation replay data
         model = build_model(config, device)
         model.load_state_dict(sd)
-        print(f"  Collecting {args.collect_samples} transitions...")
-        buf = collect_eval_data(
-            env_id, model, config, device,
-            args.collect_samples, union_actions,
+        print(f"Collecting {args.collect_samples} transitions for {gname}...")
+        game_buffers[gname] = collect_eval_data(
+            env_id, model, config, device, args.collect_samples, union_actions,
         )
-        game_buffers[game_name] = buf
-        print(f"  Buffer size: {buf.size}")
 
-    # ── Also load consolidated models if available ────────────────────
-    consolidated_models: Dict[str, Dict[str, torch.Tensor]] = {}
-    for cname in ["consolidated_distillation", "consolidated_htcl_lam0.1",
-                   "consolidated_htcl_lam1.0", "consolidated_htcl_lam10.0"]:
-        cpath = os.path.join(checkpoint_dir, args.tag, f"{cname}.pt")
-        if os.path.exists(cpath):
-            csd = torch.load(cpath, map_location=device, weights_only=False)
-            # Some checkpoints are raw state dicts, others are wrapped
-            if isinstance(csd, dict) and "policy_net" in csd:
-                csd = csd["policy_net"]
-            consolidated_models[cname] = csd
-            print(f"  Loaded consolidated: {cname}")
+    # -- Load consolidated models ---------------------------------------
+    CONSOLIDATED = {
+        "One-Shot":     "consolidated_oneshot.pt",
+        "Iterative":    "consolidated_iterative.pt",
+        "Hybrid":       "consolidated_hybrid.pt",
+        "Distillation": "consolidated_distillation.pt",
+    }
+    consol_sds: Dict[str, Dict[str, torch.Tensor]] = {}
+    for label, fname in CONSOLIDATED.items():
+        fpath = os.path.join(ckpt_dir, fname)
+        if os.path.exists(fpath):
+            sd = torch.load(fpath, map_location=device, weights_only=False)
+            if isinstance(sd, dict) and "policy_net" in sd:
+                sd = sd["policy_net"]
+            consol_sds[label] = sd
+            print(f"Loaded consolidated: {label}")
+        else:
+            print(f"  (not found: {fname})")
 
-    # ── Compute PCA directions ────────────────────────────────────────
-    print("\nComputing PCA directions from expert weight vectors...")
-    dir1, dir2, center, expert_coords = compute_pca_directions(
-        expert_sds, expert_sds[0],
-    )
+    # -- PCA directions -------------------------------------------------
+    print("\nComputing PCA directions...")
+    d1, d2, center = compute_pca_directions(expert_sds)
+    shapes = [(n, p.shape) for n, p in expert_sds[0].items()]
+    d1 = filter_normalize(d1, center, shapes)
+    d2 = filter_normalize(d2, center, shapes)
 
-    # Apply filter normalization
-    ref_sd = expert_sds[0]
-    shapes = [(name, param.shape) for name, param in ref_sd.items()]
-    dir1 = filter_normalize(dir1, center, shapes)
-    dir2 = filter_normalize(dir2, center, shapes)
-
-    # Re-project after normalization
-    expert_coords = []
-    for sd in expert_sds:
-        diff = flatten_params(sd) - center
-        x = torch.dot(diff, dir1).item()
-        y = torch.dot(diff, dir2).item()
-        expert_coords.append((x, y))
-
-    # Project consolidated models
-    consolidated_coords: Dict[str, Tuple[float, float]] = {}
-    for cname, csd in consolidated_models.items():
-        diff = flatten_params(csd) - center
-        x = torch.dot(diff, dir1).item()
-        y = torch.dot(diff, dir2).item()
-        consolidated_coords[cname] = (x, y)
+    expert_coords = {gn: project(sd, center, d1, d2)
+                     for gn, sd in zip(game_names, expert_sds)}
+    consol_coords = {lab: project(sd, center, d1, d2)
+                     for lab, sd in consol_sds.items()}
 
     print("Expert projections:")
-    for gn, (x, y) in zip(game_names, expert_coords):
-        print(f"  {gn}: ({x:.4f}, {y:.4f})")
-    for cname, (x, y) in consolidated_coords.items():
-        print(f"  {cname}: ({x:.4f}, {y:.4f})")
+    for gn, (x, y) in expert_coords.items():
+        print(f"  {gn}: ({x:.2f}, {y:.2f})")
+    for lab, (x, y) in consol_coords.items():
+        print(f"  {lab}: ({x:.2f}, {y:.2f})")
 
-    # ── Build evaluation grid ─────────────────────────────────────────
-    all_coords = expert_coords + list(consolidated_coords.values())
-    max_extent = max(
-        max(abs(c[0]) for c in all_coords),
-        max(abs(c[1]) for c in all_coords),
-    ) * 1.5 * args.range
+    # -- Build grid -----------------------------------------------------
+    all_xy = list(expert_coords.values()) + list(consol_coords.values())
+    extent = max(max(abs(c[0]) for c in all_xy),
+                 max(abs(c[1]) for c in all_xy)) * 1.5 * args.range
 
-    alphas = np.linspace(-max_extent, max_extent, args.grid_size)
-    betas = np.linspace(-max_extent, max_extent, args.grid_size)
+    alphas = np.linspace(-extent, extent, args.grid_size)
+    betas = np.linspace(-extent, extent, args.grid_size)
     A, B = np.meshgrid(alphas, betas)
 
-    # ── Evaluate losses on the grid ──────────────────────────────────
-    # loss_grids[game_name] = 2D array of loss values
+    # -- Evaluate grid --------------------------------------------------
+    ref_sd = expert_sds[0]
     loss_grids: Dict[str, np.ndarray] = {g: np.zeros_like(A) for g in game_names}
-
-    total_points = args.grid_size * args.grid_size
     eval_model = build_model(config, device)
 
-    print(f"\nEvaluating {total_points} grid points x {len(game_names)} games...")
+    total = args.grid_size ** 2
+    print(f"\nEvaluating {total} grid points x {len(game_names)} games...")
     for i in range(args.grid_size):
         if (i + 1) % 5 == 0 or i == 0:
             print(f"  Row {i + 1}/{args.grid_size}...")
-
         for j in range(args.grid_size):
-            alpha = A[i, j]
-            beta = B[i, j]
-
-            # Construct model weights at this grid point
-            flat_weights = center + alpha * dir1 + beta * dir2
-            grid_sd = unflatten_params(flat_weights, ref_sd)
-            # Move to device
-            grid_sd = {k: v.to(device) for k, v in grid_sd.items()}
-
-            # Evaluate on each game
-            for game_name in game_names:
-                loss = evaluate_bellman_loss(
-                    eval_model, grid_sd, game_buffers[game_name],
+            flat = center + A[i, j] * d1 + B[i, j] * d2
+            grid_sd = {k: v.to(device)
+                       for k, v in unflatten_params(flat, ref_sd).items()}
+            for gn in game_names:
+                loss_grids[gn][i, j] = evaluate_loss(
+                    eval_model, grid_sd, game_buffers[gn],
                     device, args.eval_samples, args.gamma,
                 )
-                loss_grids[game_name][i, j] = loss
 
-    # ── Compute summed loss landscape ─────────────────────────────────
-    summed_loss = sum(loss_grids[g] for g in game_names)
+    summed = sum(loss_grids[g] for g in game_names)
+    log_grids = {g: np.log1p(loss_grids[g]) for g in game_names}
+    log_summed = np.log1p(summed)
 
-    # ── Log-scale for better visualization ────────────────────────────
-    # Add small epsilon then take log for smoother contours
-    log_grids = {}
-    for g in game_names:
-        log_grids[g] = np.log1p(loss_grids[g])
-    log_summed = np.log1p(summed_loss)
-
-    # ── Figure 1: Per-game contour plots (1x3) ───────────────────────
+    # ================================================================
+    # Figure 1: Per-game contour plots (1x3) -- experts only
+    # ================================================================
     print("\nGenerating per-game contour plots...")
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6.5))
+    fig, axes = plt.subplots(1, 3, figsize=(21, 6.5))
 
-    for idx, (game_name, ax) in enumerate(zip(game_names, axes)):
-        Z = log_grids[game_name]
-        cmap = GAME_CMAPS.get(game_name, COMBINED_CMAP)
+    for idx, (gn, ax) in enumerate(zip(game_names, axes)):
+        Z = log_grids[gn]
+        cmap = GAME_CMAPS.get(gn, COMBINED_CMAP)
 
-        cf = ax.contourf(A, B, Z, levels=30, cmap=cmap, alpha=0.9)
-        ax.contour(A, B, Z, levels=15, colors=["#FFFFFF"], linewidths=0.3, alpha=0.25)
+        cf = ax.contourf(A, B, Z, levels=30, cmap=cmap, alpha=0.92)
+        ax.contour(A, B, Z, levels=15, colors=["#374151"],
+                   linewidths=0.25, alpha=0.3)
 
-        # Mark all expert positions
-        for k, (gn, (ex, ey)) in enumerate(zip(game_names, expert_coords)):
-            is_this = (gn == game_name)
+        # Mark all three experts
+        for k, (egn, (ex, ey)) in enumerate(expert_coords.items()):
+            is_this = (egn == gn)
             ax.scatter(
-                ex, ey,
-                c=GAME_COLORS[gn],
-                s=120 if is_this else 60,
-                edgecolors="white",
-                linewidths=2 if is_this else 1,
-                zorder=10,
-                marker="*" if is_this else "o",
-                label=f"{gn} expert" if idx == 0 else None,
+                ex, ey, c=GAME_COLORS[egn],
+                s=200 if is_this else 80,
+                edgecolors="white" if is_this else "#374151",
+                linewidths=2.5 if is_this else 1,
+                zorder=10, marker="*",
+                label=f"{egn}" if idx == 0 else None,
             )
+            if is_this:
+                ax.annotate(
+                    f"{gn}\nminimum",
+                    (ex, ey), textcoords="offset points",
+                    xytext=(12, 12), fontsize=9, fontweight="bold",
+                    color=GAME_COLORS[gn],
+                    bbox=dict(boxstyle="round,pad=0.3", fc=BG, ec=BORDER,
+                              alpha=0.85),
+                    arrowprops=dict(arrowstyle="-|>", color=GAME_COLORS[gn],
+                                    lw=1.2),
+                )
 
-        # Mark consolidated models
-        for cname, (cx, cy) in consolidated_coords.items():
-            short_name = cname.replace("consolidated_", "").replace("_", " ")
-            ax.scatter(
-                cx, cy, c=CONSOLIDATED_COLOR, s=70,
-                edgecolors="white", linewidths=1.2,
-                zorder=10, marker="D",
-                label=short_name if idx == 0 else None,
-            )
-
-        ax.set_title(
-            f"{game_name} Loss",
-            fontsize=14, fontweight="bold",
-            color=GAME_COLORS[game_name], pad=10,
-        )
+        ax.set_title(gn, fontsize=15, fontweight="bold",
+                     color=GAME_COLORS[gn], pad=10)
         ax.set_xlabel("PC 1", fontsize=11)
         ax.set_ylabel("PC 2" if idx == 0 else "", fontsize=11)
         ax.tick_params(length=0)
 
-        # Colorbar
         cbar = fig.colorbar(cf, ax=ax, fraction=0.04, pad=0.03)
         cbar.set_label("log(1 + loss)", fontsize=9, color=TEXT_DIM)
         cbar.ax.yaxis.set_tick_params(color=TEXT_DIM)
         plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_DIM, fontsize=8)
 
-    # Shared legend
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(
-        handles, labels, loc="lower center", ncol=len(handles),
-        fontsize=10, framealpha=0.85, borderpad=0.6,
-        bbox_to_anchor=(0.5, -0.02),
-    )
+    fig.legend(handles, labels, loc="lower center", ncol=3, fontsize=11,
+               framealpha=0.9, borderpad=0.6, bbox_to_anchor=(0.5, -0.02))
 
-    fig.suptitle(
-        "Per-Game Loss Landscape (PCA Projection)",
-        fontsize=18, fontweight="bold", color=TEXT, y=1.02,
-    )
+    fig.suptitle("Per-Game Loss Landscape  \u00b7  Expert Minima",
+                 fontsize=19, fontweight="bold", y=1.02)
     fig.tight_layout()
-    _save(fig, figure_dir, f"loss_landscape_per_game_{args.tag}")
+    _save(fig, fig_dir, f"loss_landscape_per_game_{args.tag}")
     plt.close(fig)
 
-    # ── Figure 2: Combined contour with expert markers ────────────────
-    print("Generating combined contour plot...")
-    fig, ax = plt.subplots(figsize=(10, 8.5))
+    # ================================================================
+    # Figure 2: Combined 2D contour -- all models
+    # ================================================================
+    print("Generating combined 2D contour...")
+    fig, ax = plt.subplots(figsize=(11, 9))
 
-    cf = ax.contourf(A, B, log_summed, levels=40, cmap=COMBINED_CMAP, alpha=0.9)
-    ax.contour(A, B, log_summed, levels=20, colors=["#FFFFFF"], linewidths=0.3, alpha=0.2)
+    cf = ax.contourf(A, B, log_summed, levels=40, cmap=COMBINED_CMAP, alpha=0.92)
+    ax.contour(A, B, log_summed, levels=20, colors=["#374151"],
+               linewidths=0.25, alpha=0.25)
 
-    for gn, (ex, ey) in zip(game_names, expert_coords):
-        ax.scatter(
-            ex, ey, c=GAME_COLORS[gn], s=180,
-            edgecolors="white", linewidths=2.5, zorder=10,
-            marker="*", label=f"{gn}",
-        )
-        ax.annotate(
-            gn, (ex, ey), textcoords="offset points",
-            xytext=(10, 10), fontsize=11, fontweight="bold",
-            color=GAME_COLORS[gn],
-            bbox=dict(boxstyle="round,pad=0.2", fc=BG, ec="none", alpha=0.7),
-        )
+    # Experts (stars)
+    for gn, (ex, ey) in expert_coords.items():
+        ax.scatter(ex, ey, c=GAME_COLORS[gn], s=220, edgecolors="white",
+                   linewidths=2.5, zorder=10, marker="*",
+                   label=f"{gn} Expert")
+        ax.annotate(gn, (ex, ey), textcoords="offset points",
+                    xytext=(12, 10), fontsize=11, fontweight="bold",
+                    color=GAME_COLORS[gn],
+                    bbox=dict(boxstyle="round,pad=0.25", fc=BG, ec="none",
+                              alpha=0.8))
 
-    for cname, (cx, cy) in consolidated_coords.items():
-        short = cname.replace("consolidated_", "")
-        ax.scatter(
-            cx, cy, c=CONSOLIDATED_COLOR, s=100,
-            edgecolors="white", linewidths=1.5, zorder=10, marker="D",
-            label=short,
-        )
-        ax.annotate(
-            short, (cx, cy), textcoords="offset points",
-            xytext=(10, -12), fontsize=9, color=CONSOLIDATED_COLOR,
-            bbox=dict(boxstyle="round,pad=0.2", fc=BG, ec="none", alpha=0.7),
-        )
+    # Consolidated methods (distinct markers)
+    for lab, (cx, cy) in consol_coords.items():
+        st = METHOD_STYLE[lab]
+        ax.scatter(cx, cy, c=st["color"], s=st["size"],
+                   edgecolors="white", linewidths=1.8, zorder=10,
+                   marker=st["marker"], label=lab)
+        ax.annotate(lab, (cx, cy), textcoords="offset points",
+                    xytext=(10, -14), fontsize=9.5, fontweight="medium",
+                    color=st["color"],
+                    bbox=dict(boxstyle="round,pad=0.2", fc=BG, ec="none",
+                              alpha=0.8))
 
     ax.set_xlabel("PC 1", fontsize=13)
     ax.set_ylabel("PC 2", fontsize=13)
-    ax.set_title(
-        "Combined Loss Landscape",
-        fontsize=18, fontweight="bold", pad=14,
-    )
-    ax.legend(fontsize=11, framealpha=0.85, loc="upper right")
+    ax.set_title("Combined Loss Landscape  \u00b7  All Models",
+                 fontsize=18, fontweight="bold", pad=14)
+    ax.legend(fontsize=10.5, framealpha=0.92, loc="upper right",
+              borderpad=0.7, handletextpad=0.6)
     ax.tick_params(length=0)
 
     cbar = fig.colorbar(cf, ax=ax, fraction=0.03, pad=0.03)
-    cbar.set_label("log(1 + Σ losses)", fontsize=11, color=TEXT_DIM)
+    cbar.set_label("log(1 + \u03a3 losses)", fontsize=11, color=TEXT_DIM)
     cbar.ax.yaxis.set_tick_params(color=TEXT_DIM)
     plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_DIM, fontsize=9)
 
     fig.tight_layout()
-    _save(fig, figure_dir, f"loss_landscape_combined_{args.tag}")
+    _save(fig, fig_dir, f"loss_landscape_combined_{args.tag}")
     plt.close(fig)
 
-    # ── Figure 3: 3D surface plot ─────────────────────────────────────
-    print("Generating 3D surface plot...")
-    fig = plt.figure(figsize=(12, 9))
-    ax3d = fig.add_subplot(111, projection="3d")
-    ax3d.set_facecolor(BG_PANEL)
+    # ================================================================
+    # Figure 3: Combined 3D surface -- all models
+    # ================================================================
+    print("Generating 3D surface...")
+    fig = plt.figure(figsize=(13, 10))
+    ax3 = fig.add_subplot(111, projection="3d")
+    ax3.set_facecolor(BG_PANEL)
 
-    surf = ax3d.plot_surface(
-        A, B, log_summed,
-        cmap=COMBINED_CMAP, alpha=0.85,
+    surf = ax3.plot_surface(
+        A, B, log_summed, cmap=COMBINED_CMAP, alpha=0.82,
         edgecolor="none", antialiased=True,
         rcount=args.grid_size, ccount=args.grid_size,
     )
 
-    # Plot expert positions on the surface
-    for gn, (ex, ey) in zip(game_names, expert_coords):
-        # Find closest grid point for z-value
+    z_range = log_summed.max() - log_summed.min()
+
+    # Experts on surface
+    for gn, (ex, ey) in expert_coords.items():
         ix = np.argmin(np.abs(alphas - ex))
         iy = np.argmin(np.abs(betas - ey))
         ez = log_summed[iy, ix]
-        ax3d.scatter(
-            [ex], [ey], [ez], c=GAME_COLORS[gn], s=150,
-            edgecolors="white", linewidths=2, zorder=10, marker="*",
-        )
-        ax3d.text(
-            ex, ey, ez + (log_summed.max() - log_summed.min()) * 0.05,
-            gn, fontsize=10, fontweight="bold", color=GAME_COLORS[gn],
-            ha="center",
-        )
+        ax3.scatter([ex], [ey], [ez], c=GAME_COLORS[gn], s=200,
+                    edgecolors="white", linewidths=2, zorder=10, marker="*")
+        ax3.text(ex, ey, ez + z_range * 0.04, gn,
+                 fontsize=10, fontweight="bold", color=GAME_COLORS[gn],
+                 ha="center")
 
-    # Consolidated models on the surface
-    for cname, (cx, cy) in consolidated_coords.items():
+    # Consolidated on surface
+    for lab, (cx, cy) in consol_coords.items():
+        st = METHOD_STYLE[lab]
         ix = np.argmin(np.abs(alphas - cx))
         iy = np.argmin(np.abs(betas - cy))
         cz = log_summed[iy, ix]
-        short = cname.replace("consolidated_", "")
-        ax3d.scatter(
-            [cx], [cy], [cz], c=CONSOLIDATED_COLOR, s=80,
-            edgecolors="white", linewidths=1.5, zorder=10, marker="D",
-        )
+        ax3.scatter([cx], [cy], [cz], c=st["color"], s=st["size"],
+                    edgecolors="white", linewidths=1.5, zorder=10,
+                    marker=st["marker"])
+        ax3.text(cx, cy, cz + z_range * 0.03, lab,
+                 fontsize=8.5, fontweight="medium", color=st["color"],
+                 ha="center")
 
-    ax3d.set_xlabel("PC 1", fontsize=11, labelpad=8)
-    ax3d.set_ylabel("PC 2", fontsize=11, labelpad=8)
-    ax3d.set_zlabel("log(1 + Σ losses)", fontsize=11, labelpad=8)
-    ax3d.set_title(
-        "3D Combined Loss Landscape",
-        fontsize=17, fontweight="bold", pad=20,
-    )
-    ax3d.view_init(elev=30, azim=-50)
-    ax3d.tick_params(labelsize=8)
-    ax3d.xaxis.pane.fill = False
-    ax3d.yaxis.pane.fill = False
-    ax3d.zaxis.pane.fill = False
-    ax3d.xaxis.pane.set_edgecolor(GRID_CLR)
-    ax3d.yaxis.pane.set_edgecolor(GRID_CLR)
-    ax3d.zaxis.pane.set_edgecolor(GRID_CLR)
+    ax3.set_xlabel("PC 1", fontsize=11, labelpad=8)
+    ax3.set_ylabel("PC 2", fontsize=11, labelpad=8)
+    ax3.set_zlabel("log(1 + \u03a3 losses)", fontsize=11, labelpad=8)
+    ax3.set_title("3D Combined Loss Landscape",
+                  fontsize=17, fontweight="bold", pad=18)
+    ax3.view_init(elev=28, azim=-55)
+    ax3.tick_params(labelsize=8)
+    ax3.xaxis.pane.fill = False
+    ax3.yaxis.pane.fill = False
+    ax3.zaxis.pane.fill = False
+    ax3.xaxis.pane.set_edgecolor(BORDER)
+    ax3.yaxis.pane.set_edgecolor(BORDER)
+    ax3.zaxis.pane.set_edgecolor(BORDER)
 
-    _save(fig, figure_dir, f"loss_landscape_3d_{args.tag}")
+    _save(fig, fig_dir, f"loss_landscape_3d_{args.tag}")
     plt.close(fig)
 
-    # ── Figure 4: 2x2 dashboard ──────────────────────────────────────
-    print("Generating dashboard...")
-    fig = plt.figure(figsize=(18, 14))
-    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.30, wspace=0.25,
-                           left=0.06, right=0.96, top=0.93, bottom=0.06)
-
-    # Panel A, B, C: per-game contours
-    panel_labels = ["A", "B", "C"]
-    for idx, game_name in enumerate(game_names):
-        if idx < 2:
-            ax = fig.add_subplot(gs[0, idx])
-        else:
-            ax = fig.add_subplot(gs[1, 0])
-
-        Z = log_grids[game_name]
-        cmap = GAME_CMAPS.get(game_name, COMBINED_CMAP)
-        cf = ax.contourf(A, B, Z, levels=25, cmap=cmap, alpha=0.9)
-        ax.contour(A, B, Z, levels=12, colors=["#FFFFFF"], linewidths=0.3, alpha=0.2)
-
-        for gn, (ex, ey) in zip(game_names, expert_coords):
-            is_this = gn == game_name
-            ax.scatter(
-                ex, ey, c=GAME_COLORS[gn],
-                s=100 if is_this else 40,
-                edgecolors="white", linewidths=1.5 if is_this else 0.8,
-                zorder=10, marker="*" if is_this else "o",
-            )
-
-        for cname, (cx, cy) in consolidated_coords.items():
-            ax.scatter(cx, cy, c=CONSOLIDATED_COLOR, s=50,
-                       edgecolors="white", linewidths=1, zorder=10, marker="D")
-
-        ax.set_title(
-            f"{panel_labels[idx]}   {game_name}",
-            fontsize=13, fontweight="bold",
-            color=GAME_COLORS[game_name], loc="left", pad=8,
-        )
-        ax.set_xlabel("PC 1", fontsize=10)
-        ax.set_ylabel("PC 2", fontsize=10)
-        ax.tick_params(length=0)
-
-    # Panel D: combined
-    ax_comb = fig.add_subplot(gs[1, 1])
-    cf = ax_comb.contourf(A, B, log_summed, levels=30, cmap=COMBINED_CMAP, alpha=0.9)
-    ax_comb.contour(A, B, log_summed, levels=15, colors=["#FFFFFF"],
-                     linewidths=0.3, alpha=0.2)
-
-    for gn, (ex, ey) in zip(game_names, expert_coords):
-        ax_comb.scatter(ex, ey, c=GAME_COLORS[gn], s=100,
-                        edgecolors="white", linewidths=1.5, zorder=10, marker="*")
-    for cname, (cx, cy) in consolidated_coords.items():
-        ax_comb.scatter(cx, cy, c=CONSOLIDATED_COLOR, s=60,
-                        edgecolors="white", linewidths=1, zorder=10, marker="D")
-
-    ax_comb.set_title("D   Combined Loss", fontsize=13, fontweight="bold",
-                       loc="left", pad=8)
-    ax_comb.set_xlabel("PC 1", fontsize=10)
-    ax_comb.set_ylabel("PC 2", fontsize=10)
-    ax_comb.tick_params(length=0)
-
-    fig.suptitle(
-        "Loss Landscape Dashboard",
-        fontsize=20, fontweight="bold", color=TEXT, y=0.97,
-    )
-    _save(fig, figure_dir, f"loss_landscape_dashboard_{args.tag}")
-    plt.close(fig)
-
-    # ── Print minima info ─────────────────────────────────────────────
+    # -- Print minima analysis ------------------------------------------
     print("\n" + "=" * 60)
-    print("Grid Minima Analysis")
+    print("Loss Landscape Analysis")
     print("=" * 60)
-    for game_name in game_names:
-        Z = loss_grids[game_name]
-        min_idx = np.unravel_index(Z.argmin(), Z.shape)
-        min_alpha = A[min_idx]
-        min_beta = B[min_idx]
-        min_loss = Z[min_idx]
-        print(f"\n{game_name}:")
-        print(f"  Grid minimum at PC1={min_alpha:.4f}, PC2={min_beta:.4f}")
-        print(f"  Loss at minimum: {min_loss:.4f}")
-        ex, ey = expert_coords[game_names.index(game_name)]
-        print(f"  Expert position: PC1={ex:.4f}, PC2={ey:.4f}")
-        # Loss at expert position
+
+    for gn in game_names:
+        Z = loss_grids[gn]
+        mi = np.unravel_index(Z.argmin(), Z.shape)
+        ex, ey = expert_coords[gn]
         ix = np.argmin(np.abs(alphas - ex))
         iy = np.argmin(np.abs(betas - ey))
-        print(f"  Loss at expert: {Z[iy, ix]:.4f}")
+        print(f"\n{gn}:")
+        print(f"  Grid min at PC1={A[mi]:.2f}, PC2={B[mi]:.2f}, loss={Z[mi]:.4f}")
+        print(f"  Expert at PC1={ex:.2f}, PC2={ey:.2f}, loss={Z[iy, ix]:.4f}")
 
-    print(f"\nCombined landscape:")
-    min_idx = np.unravel_index(summed_loss.argmin(), summed_loss.shape)
-    print(f"  Grid minimum at PC1={A[min_idx]:.4f}, PC2={B[min_idx]:.4f}")
-    print(f"  Summed loss at minimum: {summed_loss[min_idx]:.4f}")
-
-    for cname, (cx, cy) in consolidated_coords.items():
+    print(f"\nCombined (summed) landscape:")
+    mi = np.unravel_index(summed.argmin(), summed.shape)
+    print(f"  Grid min at PC1={A[mi]:.2f}, PC2={B[mi]:.2f}, "
+          f"summed loss={summed[mi]:.4f}")
+    for lab, (cx, cy) in consol_coords.items():
         ix = np.argmin(np.abs(alphas - cx))
         iy = np.argmin(np.abs(betas - cy))
-        print(f"  {cname}: summed loss = {summed_loss[iy, ix]:.4f}")
+        print(f"  {lab}: summed loss={summed[iy, ix]:.4f}")
 
     print("\nDone.")
 
