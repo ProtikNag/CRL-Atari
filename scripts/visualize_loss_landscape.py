@@ -8,9 +8,9 @@ weights.
 Produces:
   1. Per-game 2D contour plots showing each game's loss landscape with
      the three expert minima marked (star markers)
-  2. Combined 2D contour of across-game summed loss with all models
+    2. Combined 2D contour of across-game averaged loss with all models
      plotted (experts + one-shot + iterative + hybrid + distillation)
-  3. Combined 3D surface with the same model positions on the surface
+    3. Combined 3D surface with the same model positions on the surface
 
 Methodology follows Li et al. (2018) "Visualizing the Loss Landscape of
 Neural Nets" with PCA directions derived from expert weight vectors.
@@ -435,9 +435,9 @@ def main() -> None:
                     eval_model, grid_sd, s, a, t,
                 )
 
-    summed = sum(loss_grids[g] for g in game_names)
+    averaged = sum(loss_grids[g] for g in game_names) / len(game_names)
     log_grids = {g: np.log1p(loss_grids[g]) for g in game_names}
-    log_summed = np.log1p(summed)
+    log_averaged = np.log1p(averaged)
 
     # ================================================================
     # Figure 1: Per-game contour plots (1x3) -- experts only
@@ -503,8 +503,8 @@ def main() -> None:
     print("Generating combined 2D contour...")
     fig, ax = plt.subplots(figsize=(11, 9))
 
-    cf = ax.contourf(A, B, log_summed, levels=40, cmap=COMBINED_CMAP, alpha=0.92)
-    ax.contour(A, B, log_summed, levels=20, colors=["#374151"],
+    cf = ax.contourf(A, B, log_averaged, levels=40, cmap=COMBINED_CMAP, alpha=0.92)
+    ax.contour(A, B, log_averaged, levels=20, colors=["#374151"],
                linewidths=0.25, alpha=0.25)
 
     # Experts (stars)
@@ -539,7 +539,7 @@ def main() -> None:
     ax.tick_params(length=0)
 
     cbar = fig.colorbar(cf, ax=ax, fraction=0.03, pad=0.03)
-    cbar.set_label("log(1 + \u03a3 losses)", fontsize=11, color=TEXT_DIM)
+    cbar.set_label("log(1 + avg loss)", fontsize=11, color=TEXT_DIM)
     cbar.ax.yaxis.set_tick_params(color=TEXT_DIM)
     plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_DIM, fontsize=9)
 
@@ -556,19 +556,19 @@ def main() -> None:
     ax3.set_facecolor(BG_PANEL)
 
     surf = ax3.plot_surface(
-        A, B, log_summed, cmap=COMBINED_CMAP, alpha=1.0,
+        A, B, log_averaged, cmap=COMBINED_CMAP, alpha=1.0,
         edgecolor="none", antialiased=True,
         rcount=args.grid_size, ccount=args.grid_size,
     )
 
-    z_range = log_summed.max() - log_summed.min()
+    z_range = log_averaged.max() - log_averaged.min()
     z_offset = z_range * 0.08  # lift markers slightly above surface
 
     # Experts on surface (use legend, not text labels)
     for gn, (ex, ey) in expert_coords.items():
         ix = np.argmin(np.abs(alphas - ex))
         iy = np.argmin(np.abs(betas - ey))
-        ez = log_summed[iy, ix]
+        ez = log_averaged[iy, ix]
         ax3.scatter([ex], [ey], [ez + z_offset], c=GAME_COLORS[gn], s=180,
                     edgecolors="white", linewidths=1.5, zorder=10, marker="*",
                     label=f"{gn} Expert")
@@ -578,14 +578,14 @@ def main() -> None:
         st = METHOD_STYLE[lab]
         ix = np.argmin(np.abs(alphas - cx))
         iy = np.argmin(np.abs(betas - cy))
-        cz = log_summed[iy, ix]
+        cz = log_averaged[iy, ix]
         ax3.scatter([cx], [cy], [cz + z_offset], c=st["color"], s=st["size"],
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
 
     ax3.set_xlabel("PC 1", fontsize=11, labelpad=8)
     ax3.set_ylabel("PC 2", fontsize=11, labelpad=8)
-    ax3.set_zlabel("log(1 + \u03a3 losses)", fontsize=11, labelpad=8)
+    ax3.set_zlabel("log(1 + avg loss)", fontsize=11, labelpad=8)
     ax3.set_title("3D Combined Loss Landscape",
                   fontsize=17, fontweight="bold", pad=12)
     ax3.view_init(elev=35, azim=-55)
@@ -622,14 +622,14 @@ def main() -> None:
         print(f"  Grid min at PC1={A[mi]:.2f}, PC2={B[mi]:.2f}, loss={Z[mi]:.4f}")
         print(f"  Expert at PC1={ex:.2f}, PC2={ey:.2f}, loss={Z[iy, ix]:.4f}")
 
-    print(f"\nCombined (summed) landscape:")
-    mi = np.unravel_index(summed.argmin(), summed.shape)
+    print(f"\nCombined (averaged) landscape:")
+    mi = np.unravel_index(averaged.argmin(), averaged.shape)
     print(f"  Grid min at PC1={A[mi]:.2f}, PC2={B[mi]:.2f}, "
-          f"summed loss={summed[mi]:.4f}")
+          f"avg loss={averaged[mi]:.4f}")
     for lab, (cx, cy) in consol_coords.items():
         ix = np.argmin(np.abs(alphas - cx))
         iy = np.argmin(np.abs(betas - cy))
-        print(f"  {lab}: summed loss={summed[iy, ix]:.4f}")
+        print(f"  {lab}: avg loss={averaged[iy, ix]:.4f}")
 
     print("\nDone.")
 
