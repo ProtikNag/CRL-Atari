@@ -232,21 +232,42 @@ def collect_eval_data(
     return buf
 
 
-def evaluate_loss(
-    model: DQNNetwork, sd: Dict[str, torch.Tensor],
+def precompute_expert_targets(
+    expert_model: DQNNetwork, sd: Dict[str, torch.Tensor],
     buf: ReplayBuffer, device: str,
     num_samples: int = 256, gamma: float = 0.99,
-) -> float:
-    """Evaluate Bellman (smooth-L1) loss at given weights."""
-    model.load_state_dict(sd)
-    model.eval()
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Precompute fixed TD targets from the game's own expert.
+
+    Returns:
+        (states, actions, targets) - all detached tensors
+    """
+    expert_model.load_state_dict(sd)
+    expert_model.eval()
     states, actions, rewards, next_states, dones = buf.sample(
         min(num_samples, buf.size))
     with torch.no_grad():
+        q_next_max = expert_model(next_states).max(dim=1).values
+        targets = rewards + gamma * q_next_max * (1.0 - dones)
+    return states, actions, targets
+
+
+def evaluate_loss(
+    model: DQNNetwork, sd: Dict[str, torch.Tensor],
+    states: torch.Tensor, actions: torch.Tensor,
+    targets: torch.Tensor,
+) -> float:
+    """Evaluate loss against fixed expert targets.
+
+    The targets are precomputed from each game's own expert, so models
+    that disagree with the expert produce high loss. This avoids the
+    self-consistency issue where TD loss is low even for wrong models.
+    """
+    model.load_state_dict(sd)
+    model.eval()
+    with torch.no_grad():
         q = model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-        q_next_max = model(next_states).max(dim=1).values
-        target = rewards + gamma * q_next_max * (1.0 - dones)
-        return F.smooth_l1_loss(q, target).item()
+        return F.smooth_l1_loss(q, targets).item()
 
 
 def _save(fig: plt.Figure, save_dir: str, name: str) -> None:
@@ -378,6 +399,22 @@ def main() -> None:
     betas = np.linspace(-extent, extent, args.grid_size)
     A, B = np.meshgrid(alphas, betas)
 
+    # -- Precompute expert targets ------------------------------------
+    # Use each game's own expert to compute TD targets ONCE.
+    # This ensures the loss measures "distance from expert behaviour",
+    # not self-consistent TD error (which would be low even for wrong
+    # models).
+    print("\nPrecomputing expert targets...")
+    expert_targets: Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+    target_model = build_model(config, device)
+    for gn, sd in zip(game_names, expert_sds):
+        states, actions, targets = precompute_expert_targets(
+            target_model, sd, game_buffers[gn],
+            device, args.eval_samples, args.gamma,
+        )
+        expert_targets[gn] = (states, actions, targets)
+        print(f"  {gn}: {states.shape[0]} samples")
+
     # -- Evaluate grid --------------------------------------------------
     ref_sd = expert_sds[0]
     loss_grids: Dict[str, np.ndarray] = {g: np.zeros_like(A) for g in game_names}
@@ -393,9 +430,9 @@ def main() -> None:
             grid_sd = {k: v.to(device)
                        for k, v in unflatten_params(flat, ref_sd).items()}
             for gn in game_names:
+                s, a, t = expert_targets[gn]
                 loss_grids[gn][i, j] = evaluate_loss(
-                    eval_model, grid_sd, game_buffers[gn],
-                    device, args.eval_samples, args.gamma,
+                    eval_model, grid_sd, s, a, t,
                 )
 
     summed = sum(loss_grids[g] for g in game_names)
@@ -555,9 +592,8 @@ def main() -> None:
     ax3.set_zlabel("log(1 + \u03a3 losses)", fontsize=11, labelpad=8)
     ax3.set_title("3D Combined Loss Landscape",
                   fontsize=17, fontweight="bold", pad=18)
-    ax3.view_init(elev=32, azim=-50)
+    ax3.view_init(elev=30, azim=-50)
     ax3.tick_params(labelsize=9)
-    ax3.dist = 9  # closer camera distance (default ~10)
     ax3.xaxis.pane.fill = False
     ax3.yaxis.pane.fill = False
     ax3.zaxis.pane.fill = False
