@@ -13,8 +13,11 @@ Produces:
   3. Combined 3D surface with the same model positions on the surface
 
 Methodology follows Li et al. (2018) "Visualizing the Loss Landscape of
-Neural Nets" with PCA directions derived from expert weight vectors and
-filter-wise normalization.
+Neural Nets" with PCA directions derived from expert weight vectors.
+Filter-wise normalization is intentionally NOT applied because the PCA
+directions are derived from real expert weights (not random), and
+normalization would break the exact reconstruction guarantee that places
+each expert at its true minimum in its own game's landscape.
 
 Usage:
     python scripts/visualize_loss_landscape.py [--config configs/base.yaml]
@@ -339,14 +342,24 @@ def main() -> None:
             print(f"  (not found: {fname})")
 
     # -- PCA directions -------------------------------------------------
+    # NOTE: No filter-wise normalization. With 3 experts the centered
+    # weight matrix has rank 2, so PCA captures 100% of variance and
+    # center + x*d1 + y*d2 exactly reconstructs each expert's weights.
+    # Normalization would break this and push minima to (0,0).
     print("\nComputing PCA directions...")
     d1, d2, center = compute_pca_directions(expert_sds)
-    shapes = [(n, p.shape) for n, p in expert_sds[0].items()]
-    d1 = filter_normalize(d1, center, shapes)
-    d2 = filter_normalize(d2, center, shapes)
 
     expert_coords = {gn: project(sd, center, d1, d2)
                      for gn, sd in zip(game_names, expert_sds)}
+
+    # Verify reconstruction: each expert should be perfectly recoverable
+    for gn, sd in zip(game_names, expert_sds):
+        x, y = expert_coords[gn]
+        recon = center + x * d1 + y * d2
+        orig = flatten_params(sd)
+        err = (recon - orig).norm().item() / orig.norm().item()
+        print(f"  Reconstruction error for {gn}: {err:.2e}")
+        assert err < 1e-2, f"Reconstruction error too large for {gn}: {err}"
     consol_coords = {lab: project(sd, center, d1, d2)
                      for lab, sd in consol_sds.items()}
 
