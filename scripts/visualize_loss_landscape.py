@@ -38,6 +38,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as path_effects
+from matplotlib import colors
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
@@ -289,10 +290,10 @@ def main() -> None:
     )
     parser.add_argument("--config", type=str, default="configs/base.yaml")
     parser.add_argument("--tag", type=str, default="default")
-    parser.add_argument("--grid-size", type=int, default=51)
+    parser.add_argument("--grid-size", type=int, default=75)
     parser.add_argument("--range", type=float, default=1.0)
-    parser.add_argument("--eval-samples", type=int, default=256)
-    parser.add_argument("--collect-samples", type=int, default=1000)
+    parser.add_argument("--eval-samples", type=int, default=512)
+    parser.add_argument("--collect-samples", type=int, default=2000)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--gamma", type=float, default=0.99)
     args = parser.parse_args()
@@ -439,6 +440,12 @@ def main() -> None:
     averaged = sum(loss_grids[g] for g in game_names) / len(game_names)
     log_grids = {g: np.log1p(loss_grids[g]) for g in game_names}
     log_averaged = np.log1p(averaged)
+    norm_power = colors.PowerNorm(
+        gamma=0.65,
+        vmin=log_averaged.min(),
+        vmax=log_averaged.max(),
+        clip=True,
+    )
 
     # ================================================================
     # Figure 1: Per-game contour plots (1x3) -- experts only
@@ -504,8 +511,9 @@ def main() -> None:
     print("Generating combined 2D contour...")
     fig, ax = plt.subplots(figsize=(11, 9))
 
-    cf = ax.contourf(A, B, log_averaged, levels=40, cmap=COMBINED_CMAP, alpha=0.92)
-    ax.contour(A, B, log_averaged, levels=20, colors=["#374151"],
+    cf = ax.contourf(A, B, log_averaged, levels=50, cmap=COMBINED_CMAP,
+                     alpha=0.95, norm=norm_power)
+    ax.contour(A, B, log_averaged, levels=25, colors=["#374151"],
                linewidths=0.25, alpha=0.25)
 
     # Experts (stars)
@@ -558,7 +566,7 @@ def main() -> None:
 
     surf = ax3.plot_surface(
         A, B, log_averaged, cmap=COMBINED_CMAP, alpha=1.0,
-        edgecolor="none", antialiased=True,
+        edgecolor="none", antialiased=True, norm=norm_power,
         rcount=args.grid_size, ccount=args.grid_size,
     )
 
