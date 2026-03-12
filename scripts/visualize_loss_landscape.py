@@ -37,6 +37,7 @@ import torch.nn.functional as F
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as path_effects
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
@@ -564,7 +565,7 @@ def main() -> None:
     z_range = log_averaged.max() - log_averaged.min()
     z_offset = z_range * 0.08  # lift markers slightly above surface
 
-    # Experts on surface (use legend, not text labels)
+    # Experts on surface
     for gn, (ex, ey) in expert_coords.items():
         ix = np.argmin(np.abs(alphas - ex))
         iy = np.argmin(np.abs(betas - ey))
@@ -572,8 +573,14 @@ def main() -> None:
         ax3.scatter([ex], [ey], [ez + z_offset], c=GAME_COLORS[gn], s=180,
                     edgecolors="white", linewidths=1.5, zorder=10, marker="*",
                     label=f"{gn} Expert")
+        ax3.text(
+            ex, ey, ez + z_offset * 1.15, gn,
+            fontsize=10, fontweight="bold", color=TEXT,
+            ha="center", va="bottom", zorder=20, clip_on=False,
+            path_effects=[path_effects.withStroke(linewidth=2.5, foreground="white", alpha=0.9)],
+        )
 
-    # Consolidated on surface (use legend, not text labels)
+    # Consolidated on surface
     for lab, (cx, cy) in consol_coords.items():
         st = METHOD_STYLE[lab]
         ix = np.argmin(np.abs(alphas - cx))
@@ -582,6 +589,12 @@ def main() -> None:
         ax3.scatter([cx], [cy], [cz + z_offset], c=st["color"], s=st["size"],
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
+        ax3.text(
+            cx, cy, cz + z_offset * 1.12, lab,
+            fontsize=9.5, fontweight="bold", color=TEXT,
+            ha="center", va="bottom", zorder=20, clip_on=False,
+            path_effects=[path_effects.withStroke(linewidth=2.0, foreground="white", alpha=0.9)],
+        )
 
     ax3.set_xlabel("PC 1", fontsize=11, labelpad=8)
     ax3.set_ylabel("PC 2", fontsize=11, labelpad=8)
@@ -600,7 +613,7 @@ def main() -> None:
     # Legend placed outside the 3D axes to avoid clipping
     ax3.legend(
         fontsize=9.5, framealpha=0.95, loc="upper left",
-        bbox_to_anchor=(0.0, 0.92), borderpad=0.6, handletextpad=0.5,
+        bbox_to_anchor=(1.02, 1.0), borderpad=0.6, handletextpad=0.6,
         edgecolor=BORDER, facecolor=BG,
     )
 
