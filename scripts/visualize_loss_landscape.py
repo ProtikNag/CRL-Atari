@@ -58,7 +58,7 @@ from src.utils.seed import set_seed
 BG        = "#F9FAFB"   # gray-50  (very light, not pure white)
 BG_PANEL  = "#F3F4F6"   # gray-100
 TEXT      = "#111827"    # gray-900
-TEXT_DIM  = "#6B7280"    # gray-500
+TEXT_DIM  = "#374151"    # gray-700 (darker for readability)
 GRID_CLR  = "#E5E7EB"   # gray-200
 BORDER    = "#D1D5DB"    # gray-300
 
@@ -372,7 +372,7 @@ def main() -> None:
     # -- Build grid -----------------------------------------------------
     all_xy = list(expert_coords.values()) + list(consol_coords.values())
     extent = max(max(abs(c[0]) for c in all_xy),
-                 max(abs(c[1]) for c in all_xy)) * 1.5 * args.range
+                 max(abs(c[1]) for c in all_xy)) * 2.0 * args.range
 
     alphas = np.linspace(-extent, extent, args.grid_size)
     betas = np.linspace(-extent, extent, args.grid_size)
@@ -431,10 +431,10 @@ def main() -> None:
                 ax.annotate(
                     f"{gn}\nminimum",
                     (ex, ey), textcoords="offset points",
-                    xytext=(12, 12), fontsize=9, fontweight="bold",
-                    color=GAME_COLORS[gn],
-                    bbox=dict(boxstyle="round,pad=0.3", fc=BG, ec=BORDER,
-                              alpha=0.85),
+                    xytext=(12, 12), fontsize=10, fontweight="bold",
+                    color=TEXT,
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=BORDER,
+                              alpha=0.92),
                     arrowprops=dict(arrowstyle="-|>", color=GAME_COLORS[gn],
                                     lw=1.2),
                 )
@@ -476,10 +476,10 @@ def main() -> None:
                    linewidths=2.5, zorder=10, marker="*",
                    label=f"{gn} Expert")
         ax.annotate(gn, (ex, ey), textcoords="offset points",
-                    xytext=(12, 10), fontsize=11, fontweight="bold",
-                    color=GAME_COLORS[gn],
-                    bbox=dict(boxstyle="round,pad=0.25", fc=BG, ec="none",
-                              alpha=0.8))
+                    xytext=(12, 10), fontsize=12, fontweight="bold",
+                    color=TEXT,
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
+                              alpha=0.92))
 
     # Consolidated methods (distinct markers)
     for lab, (cx, cy) in consol_coords.items():
@@ -488,10 +488,10 @@ def main() -> None:
                    edgecolors="white", linewidths=1.8, zorder=10,
                    marker=st["marker"], label=lab)
         ax.annotate(lab, (cx, cy), textcoords="offset points",
-                    xytext=(10, -14), fontsize=9.5, fontweight="medium",
-                    color=st["color"],
-                    bbox=dict(boxstyle="round,pad=0.2", fc=BG, ec="none",
-                              alpha=0.8))
+                    xytext=(10, -14), fontsize=10.5, fontweight="bold",
+                    color=TEXT,
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
+                              alpha=0.92))
 
     ax.set_xlabel("PC 1", fontsize=13)
     ax.set_ylabel("PC 2", fontsize=13)
@@ -514,12 +514,12 @@ def main() -> None:
     # Figure 3: Combined 3D surface -- all models
     # ================================================================
     print("Generating 3D surface...")
-    fig = plt.figure(figsize=(13, 10))
+    fig = plt.figure(figsize=(14, 11))
     ax3 = fig.add_subplot(111, projection="3d")
     ax3.set_facecolor(BG_PANEL)
 
     surf = ax3.plot_surface(
-        A, B, log_summed, cmap=COMBINED_CMAP, alpha=0.82,
+        A, B, log_summed, cmap=COMBINED_CMAP, alpha=1.0,
         edgecolor="none", antialiased=True,
         rcount=args.grid_size, ccount=args.grid_size,
     )
@@ -533,8 +533,8 @@ def main() -> None:
         ez = log_summed[iy, ix]
         ax3.scatter([ex], [ey], [ez], c=GAME_COLORS[gn], s=200,
                     edgecolors="white", linewidths=2, zorder=10, marker="*")
-        ax3.text(ex, ey, ez + z_range * 0.04, gn,
-                 fontsize=10, fontweight="bold", color=GAME_COLORS[gn],
+        ax3.text(ex, ey, ez + z_range * 0.06, gn,
+                 fontsize=11, fontweight="bold", color=TEXT,
                  ha="center")
 
     # Consolidated on surface
@@ -546,8 +546,8 @@ def main() -> None:
         ax3.scatter([cx], [cy], [cz], c=st["color"], s=st["size"],
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"])
-        ax3.text(cx, cy, cz + z_range * 0.03, lab,
-                 fontsize=8.5, fontweight="medium", color=st["color"],
+        ax3.text(cx, cy, cz + z_range * 0.05, lab,
+                 fontsize=10, fontweight="bold", color=TEXT,
                  ha="center")
 
     ax3.set_xlabel("PC 1", fontsize=11, labelpad=8)
@@ -555,8 +555,9 @@ def main() -> None:
     ax3.set_zlabel("log(1 + \u03a3 losses)", fontsize=11, labelpad=8)
     ax3.set_title("3D Combined Loss Landscape",
                   fontsize=17, fontweight="bold", pad=18)
-    ax3.view_init(elev=28, azim=-55)
-    ax3.tick_params(labelsize=8)
+    ax3.view_init(elev=32, azim=-50)
+    ax3.tick_params(labelsize=9)
+    ax3.dist = 9  # closer camera distance (default ~10)
     ax3.xaxis.pane.fill = False
     ax3.yaxis.pane.fill = False
     ax3.zaxis.pane.fill = False
