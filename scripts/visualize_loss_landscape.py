@@ -288,7 +288,7 @@ def main() -> None:
     )
     parser.add_argument("--config", type=str, default="configs/base.yaml")
     parser.add_argument("--tag", type=str, default="default")
-    parser.add_argument("--grid-size", type=int, default=31)
+    parser.add_argument("--grid-size", type=int, default=51)
     parser.add_argument("--range", type=float, default=1.0)
     parser.add_argument("--eval-samples", type=int, default=256)
     parser.add_argument("--collect-samples", type=int, default=1000)
@@ -551,7 +551,7 @@ def main() -> None:
     # Figure 3: Combined 3D surface -- all models
     # ================================================================
     print("Generating 3D surface...")
-    fig = plt.figure(figsize=(14, 11))
+    fig = plt.figure(figsize=(15, 11))
     ax3 = fig.add_subplot(111, projection="3d")
     ax3.set_facecolor(BG_PANEL)
 
@@ -562,44 +562,47 @@ def main() -> None:
     )
 
     z_range = log_summed.max() - log_summed.min()
+    z_offset = z_range * 0.08  # lift markers slightly above surface
 
-    # Experts on surface
+    # Experts on surface (use legend, not text labels)
     for gn, (ex, ey) in expert_coords.items():
         ix = np.argmin(np.abs(alphas - ex))
         iy = np.argmin(np.abs(betas - ey))
         ez = log_summed[iy, ix]
-        ax3.scatter([ex], [ey], [ez], c=GAME_COLORS[gn], s=200,
-                    edgecolors="white", linewidths=2, zorder=10, marker="*")
-        ax3.text(ex, ey, ez + z_range * 0.06, gn,
-                 fontsize=11, fontweight="bold", color=TEXT,
-                 ha="center")
+        ax3.scatter([ex], [ey], [ez + z_offset], c=GAME_COLORS[gn], s=180,
+                    edgecolors="white", linewidths=1.5, zorder=10, marker="*",
+                    label=f"{gn} Expert")
 
-    # Consolidated on surface
+    # Consolidated on surface (use legend, not text labels)
     for lab, (cx, cy) in consol_coords.items():
         st = METHOD_STYLE[lab]
         ix = np.argmin(np.abs(alphas - cx))
         iy = np.argmin(np.abs(betas - cy))
         cz = log_summed[iy, ix]
-        ax3.scatter([cx], [cy], [cz], c=st["color"], s=st["size"],
+        ax3.scatter([cx], [cy], [cz + z_offset], c=st["color"], s=st["size"],
                     edgecolors="white", linewidths=1.5, zorder=10,
-                    marker=st["marker"])
-        ax3.text(cx, cy, cz + z_range * 0.05, lab,
-                 fontsize=10, fontweight="bold", color=TEXT,
-                 ha="center")
+                    marker=st["marker"], label=lab)
 
     ax3.set_xlabel("PC 1", fontsize=11, labelpad=8)
     ax3.set_ylabel("PC 2", fontsize=11, labelpad=8)
     ax3.set_zlabel("log(1 + \u03a3 losses)", fontsize=11, labelpad=8)
     ax3.set_title("3D Combined Loss Landscape",
-                  fontsize=17, fontweight="bold", pad=18)
-    ax3.view_init(elev=30, azim=-50)
-    ax3.tick_params(labelsize=9)
+                  fontsize=17, fontweight="bold", pad=12)
+    ax3.view_init(elev=35, azim=-55)
+    ax3.tick_params(labelsize=8)
     ax3.xaxis.pane.fill = False
     ax3.yaxis.pane.fill = False
     ax3.zaxis.pane.fill = False
     ax3.xaxis.pane.set_edgecolor(BORDER)
     ax3.yaxis.pane.set_edgecolor(BORDER)
     ax3.zaxis.pane.set_edgecolor(BORDER)
+
+    # Legend placed outside the 3D axes to avoid clipping
+    ax3.legend(
+        fontsize=9.5, framealpha=0.95, loc="upper left",
+        bbox_to_anchor=(0.0, 0.92), borderpad=0.6, handletextpad=0.5,
+        edgecolor=BORDER, facecolor=BG,
+    )
 
     _save(fig, fig_dir, f"loss_landscape_3d_{args.tag}")
     plt.close(fig)
