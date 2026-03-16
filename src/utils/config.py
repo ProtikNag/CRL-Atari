@@ -97,6 +97,19 @@ def get_effective_config(
         # Distillation debug overrides
         config["distillation"]["distill_epochs"] = debug_cfg.get("distill_epochs", 5)
 
+        # EWC debug overrides
+        if "ewc" in config:
+            config["ewc"]["fisher_samples"] = debug_cfg.get("fisher_samples", 100)
+            config["ewc"]["buffer_size_per_task"] = debug_cfg.get(
+                "buffer_size_per_task", 2000
+            )
+
+        # Multi-task debug overrides
+        if "multitask" in config:
+            config["multitask"]["total_timesteps"] = debug_cfg.get(
+                "multitask_total_timesteps", 10000
+            )
+
         # Also override evaluation episodes for compare.py
         config["evaluation"]["episodes"] = debug_cfg.get("eval_episodes", 2)
 
