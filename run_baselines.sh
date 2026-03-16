@@ -251,7 +251,7 @@ if [ -z "${SKIP_EWC}" ]; then
         python scripts/evaluate.py \
             --model-path "${MODEL_PATH}" \
             --all-tasks \
-            ${COMMON_ARGS} \
+            --config ${CONFIG} ${DEBUG} ${DEVICE} \
             --output "${EVAL_OUTPUT}" \
             2>&1 | tee -a "${LOG_FILE}"
 
@@ -313,7 +313,7 @@ if [ -z "${SKIP_MULTITASK}" ]; then
         python scripts/evaluate.py \
             --model-path "${MODEL_PATH}" \
             --all-tasks \
-            ${COMMON_ARGS} \
+            --config ${CONFIG} ${DEBUG} ${DEVICE} \
             --output "${EVAL_OUTPUT}" \
             2>&1 | tee -a "${LOG_FILE}"
 

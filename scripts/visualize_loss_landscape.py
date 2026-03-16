@@ -75,20 +75,17 @@ GAME_COLORS = {
 METHOD_STYLE = {
     "One-Shot":     {"color": "#EF4444", "marker": "D", "size": 110},  # red-500
     "Iterative":    {"color": "#8B5CF6", "marker": "s", "size": 100},  # violet-500
+    "EWC":          {"color": "#BE185D", "marker": "X", "size": 110},  # rose-700
     "Hybrid":       {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
     "Distillation": {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
-    # Epoch-sweep variants (same base color, smaller + lighter)
-    "Dist. 10 ep":    {"color": "#7DD3FC", "marker": "^", "size": 60},   # sky-300
-    "Dist. 500 ep":   {"color": "#38BDF8", "marker": "^", "size": 80},   # sky-400
+    # Epoch-sweep variants (only 10K displayed)
     "Dist. 10K ep":   {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
-    "Hybrid 10 ep":   {"color": "#F9A8D4", "marker": "P", "size": 60},   # pink-300
-    "Hybrid 500 ep":  {"color": "#F472B6", "marker": "P", "size": 80},   # pink-400
     "Hybrid 10K ep":  {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
 }
 
 # Epoch budgets to include in loss landscape
-LANDSCAPE_EPOCHS = [10, 500, 10000]
-EP_LABELS = {10: "10 ep", 500: "500 ep", 10000: "10K ep"}
+LANDSCAPE_EPOCHS = [10000]
+EP_LABELS = {10000: "10K ep"}
 
 # Per-game contour colormaps (light bg friendly)
 GAME_CMAPS = {
@@ -361,6 +358,7 @@ def main() -> None:
     CONSOLIDATED_SINGLE = {
         "One-Shot":     "consolidated_oneshot.pt",
         "Iterative":    "consolidated_iterative.pt",
+        "EWC":          "consolidated_ewc.pt",
     }
     consol_sds: Dict[str, Dict[str, torch.Tensor]] = {}
     for label, fname in CONSOLIDATED_SINGLE.items():
@@ -571,7 +569,7 @@ def main() -> None:
         ax.scatter(cx, cy, c=st["color"], s=st["size"],
                    edgecolors="white", linewidths=1.8, zorder=10,
                    marker=st["marker"], label=lab)
-        is_endpoint = (lab in ("One-Shot", "Iterative") or
+        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC") or
                        lab.endswith("10K ep"))
         if is_endpoint:
             txt = lab
@@ -675,7 +673,7 @@ def main() -> None:
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
         # Full label for endpoints, compact for low-budget epoch variants
-        is_endpoint = (lab in ("One-Shot", "Iterative") or
+        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC") or
                        lab.endswith("10K ep"))
         txt = lab if is_endpoint else lab.split()[-2] + " " + lab.split()[-1]
         ax3.text(
