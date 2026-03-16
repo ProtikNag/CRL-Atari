@@ -1,11 +1,11 @@
 #!/bin/sh
 #SBATCH --job-name=crl_epoch_sweep
 #SBATCH -N 1
-#SBATCH -n 8
+#SBATCH -n 24
 #SBATCH --gres=gpu:1
 #SBATCH --output job%j.%N.out
 #SBATCH --error job%j.%N.err
-#SBATCH -p dgx_aic
+#SBATCH -p gpu
 
 # =============================================================================
 # CRL-Atari  Epoch Count Sweep
