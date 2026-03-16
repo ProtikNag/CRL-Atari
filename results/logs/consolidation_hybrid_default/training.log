@@ -197,3 +197,86 @@
 [2026-03-08 10:54:12] INFO - Hybrid model saved to results/checkpoints/default/consolidated_hybrid.pt
 [2026-03-08 10:54:12] INFO - Consolidated model param norm: 50.8659
 [2026-03-08 10:54:12] INFO - Total consolidation time (hybrid): 2818.3s
+[2026-03-12 10:07:08] INFO - Consolidation method: hybrid
+[2026-03-12 10:07:08] INFO - Device: cuda
+[2026-03-12 10:07:08] INFO - Debug: False
+[2026-03-12 10:07:08] INFO - Tag: default
+[2026-03-12 10:07:08] INFO - Config: configs/base.yaml
+[2026-03-12 10:07:08] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+[2026-03-12 10:07:09] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-12 10:07:09] INFO - Hybrid config: lambda=100.0, K=10, recompute_fisher=False | KD epochs=10000, lr=5e-05
+[2026-03-12 10:07:09] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-12 10:16:20] INFO - Loaded 3 expert models in 551.1s.
+[2026-03-12 10:16:20] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-12 10:16:20] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-12 10:16:20] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-12 10:16:20] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-12 10:16:24] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-12 10:16:28] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-12 10:16:33] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-12 10:16:33] INFO - Initialising global model at ensemble-mean anchor (Algorithm 2, line 2)...
+[2026-03-12 10:16:33] INFO - Starting Hybrid Consolidation (Phase 1: Joint Taylor K=10, lambda_bar=233.3, per_task={'Pong': 500.0, 'Breakout': 100.0, 'SpaceInvaders': 100.0}, eta_0=0.9, gamma=0.9, recompute_fisher=False | Phase 2: KD epochs=10000, lr=5.0e-05)...
+[2026-03-12 10:16:33] INFO - 
+============================================
+ Phase 1: Multi-Round Joint Taylor
+============================================
+[2026-03-12 10:16:33] INFO - Computing Fisher/gradient ONCE at initial anchor (recompute_fisher=false; each task seen once)...
+[2026-03-12 10:16:33] INFO -   [Pong] Computing Fisher/gradient...
+[2026-03-12 10:17:55] INFO -   [Breakout] Computing Fisher/gradient...
+[2026-03-12 10:19:17] INFO -   [SpaceInvaders] Computing Fisher/gradient...
+[2026-03-12 10:20:41] INFO - HTCL: mu_min(H) = 0.000000 | Constraint: lambda > -0.000000 | Using lambda = 233.333333
+[2026-03-12 10:20:41] INFO - 
+--- Round 1/10 (eta_k=0.900000) ---
+[2026-03-12 10:20:41] INFO -   Round 1 | update_norm=25.2674 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 2/10 (eta_k=0.810000) ---
+[2026-03-12 10:20:41] INFO -   Round 2 | update_norm=2.3162 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 3/10 (eta_k=0.729000) ---
+[2026-03-12 10:20:41] INFO -   Round 3 | update_norm=0.4098 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 4/10 (eta_k=0.656100) ---
+[2026-03-12 10:20:41] INFO -   Round 4 | update_norm=0.1048 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 5/10 (eta_k=0.590490) ---
+[2026-03-12 10:20:41] INFO -   Round 5 | update_norm=0.0343 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 6/10 (eta_k=0.531441) ---
+[2026-03-12 10:20:41] INFO -   Round 6 | update_norm=0.0134 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 7/10 (eta_k=0.478297) ---
+[2026-03-12 10:20:41] INFO -   Round 7 | update_norm=0.0060 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 8/10 (eta_k=0.430467) ---
+[2026-03-12 10:20:41] INFO -   Round 8 | update_norm=0.0030 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 9/10 (eta_k=0.387420) ---
+[2026-03-12 10:20:41] INFO -   Round 9 | update_norm=0.0016 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO - 
+--- Round 10/10 (eta_k=0.348678) ---
+[2026-03-12 10:20:41] INFO -   Round 10 | update_norm=0.0009 | effective lambda=233.3333
+[2026-03-12 10:20:41] INFO -   Phase 1 complete | param norm = 41.4877
+[2026-03-12 10:20:41] INFO - 
+============================================
+ Phase 2: Knowledge Distillation Refinement
+============================================
+[2026-03-12 10:21:26] INFO -   Snapshot saved: results/checkpoints/default/consolidated_hybrid_ep10.pt (KD epoch 10)
+[2026-03-12 10:27:43] INFO -   Snapshot saved: results/checkpoints/default/consolidated_hybrid_ep100.pt (KD epoch 100)
+[2026-03-12 10:54:11] INFO -   Snapshot saved: results/checkpoints/default/consolidated_hybrid_ep500.pt (KD epoch 500)
+[2026-03-12 11:27:12] INFO -   KD epoch 1000/10000 | avg loss: 0.016716
+[2026-03-12 12:33:12] INFO -   KD epoch 2000/10000 | avg loss: 0.006934
+[2026-03-12 13:39:29] INFO -   KD epoch 3000/10000 | avg loss: 0.004894
+[2026-03-12 14:45:20] INFO -   KD epoch 4000/10000 | avg loss: 0.003422
+[2026-03-12 15:51:30] INFO -   KD epoch 5000/10000 | avg loss: 0.002902
+[2026-03-12 15:51:30] INFO -   Snapshot saved: results/checkpoints/default/consolidated_hybrid_ep5000.pt (KD epoch 5000)
+[2026-03-12 16:57:53] INFO -   KD epoch 6000/10000 | avg loss: 0.002793
+[2026-03-12 18:03:45] INFO -   KD epoch 7000/10000 | avg loss: 0.002159
+[2026-03-12 19:09:25] INFO -   KD epoch 8000/10000 | avg loss: 0.001945
+[2026-03-12 20:15:19] INFO -   KD epoch 9000/10000 | avg loss: 0.001800
+[2026-03-12 21:21:05] INFO -   KD epoch 10000/10000 | avg loss: 0.001626
+[2026-03-12 21:21:05] INFO -   Snapshot saved: results/checkpoints/default/consolidated_hybrid_ep10000.pt (KD epoch 10000)
+[2026-03-12 21:21:05] INFO -   Phase 2 complete | param norm = 63.9160
+[2026-03-12 21:21:05] INFO - Hybrid Consolidation complete.
+[2026-03-12 21:21:05] INFO - Hybrid model saved to results/checkpoints/default/consolidated_hybrid.pt
+[2026-03-12 21:21:05] INFO - Consolidated model param norm: 63.9160
+[2026-03-12 21:21:05] INFO - Total consolidation time (hybrid): 40435.8s

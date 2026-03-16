@@ -1,0 +1,16 @@
+A.L.E: Arcade Learning Environment (version 0.11.2+ecc1138)
+[Powered by Stella]
+Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+Model loaded from results/checkpoints/default/consolidated_hybrid_ep500.pt
+Device: cuda
+
+Evaluating on BreakoutNoFrameskip-v4...
+  Breakout: mean=6.70 +/- 2.19 (min=3.0, max=9.0)
+
+Evaluating on SpaceInvadersNoFrameskip-v4...
+  SpaceInvaders: mean=438.50 +/- 140.39 (min=220.0, max=585.0)
+
+Evaluating on PongNoFrameskip-v4...
+  Pong: mean=-14.30 +/- 5.93 (min=-21.0, max=-6.0)
+
+Results saved to results/figures/eval_hybrid_ep500_default.json
