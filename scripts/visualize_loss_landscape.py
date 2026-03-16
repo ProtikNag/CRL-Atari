@@ -77,7 +77,18 @@ METHOD_STYLE = {
     "Iterative":    {"color": "#8B5CF6", "marker": "s", "size": 100},  # violet-500
     "Hybrid":       {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
     "Distillation": {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
+    # Epoch-sweep variants (same base color, smaller + lighter)
+    "Dist. 10 ep":    {"color": "#7DD3FC", "marker": "^", "size": 60},   # sky-300
+    "Dist. 500 ep":   {"color": "#38BDF8", "marker": "^", "size": 80},   # sky-400
+    "Dist. 10K ep":   {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
+    "Hybrid 10 ep":   {"color": "#F9A8D4", "marker": "P", "size": 60},   # pink-300
+    "Hybrid 500 ep":  {"color": "#F472B6", "marker": "P", "size": 80},   # pink-400
+    "Hybrid 10K ep":  {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
 }
+
+# Epoch budgets to include in loss landscape
+LANDSCAPE_EPOCHS = [10, 500, 10000]
+EP_LABELS = {10: "10 ep", 500: "500 ep", 10000: "10K ep"}
 
 # Per-game contour colormaps (light bg friendly)
 GAME_CMAPS = {
@@ -346,14 +357,13 @@ def main() -> None:
         )
 
     # -- Load consolidated models ---------------------------------------
-    CONSOLIDATED = {
+    # Single-run methods
+    CONSOLIDATED_SINGLE = {
         "One-Shot":     "consolidated_oneshot.pt",
         "Iterative":    "consolidated_iterative.pt",
-        "Hybrid":       "consolidated_hybrid.pt",
-        "Distillation": "consolidated_distillation.pt",
     }
     consol_sds: Dict[str, Dict[str, torch.Tensor]] = {}
-    for label, fname in CONSOLIDATED.items():
+    for label, fname in CONSOLIDATED_SINGLE.items():
         fpath = os.path.join(ckpt_dir, fname)
         if os.path.exists(fpath):
             sd = torch.load(fpath, map_location=device, weights_only=False)
@@ -363,6 +373,22 @@ def main() -> None:
             print(f"Loaded consolidated: {label}")
         else:
             print(f"  (not found: {fname})")
+
+    # Epoch-sweep methods: Distillation and Hybrid at 10 / 500 / 10K ep
+    for method_base, file_base in [("Dist.", "distillation"),
+                                    ("Hybrid", "hybrid")]:
+        for ep in LANDSCAPE_EPOCHS:
+            label = f"{method_base} {EP_LABELS[ep]}"
+            fname = f"consolidated_{file_base}_ep{ep}.pt"
+            fpath = os.path.join(ckpt_dir, fname)
+            if os.path.exists(fpath):
+                sd = torch.load(fpath, map_location=device, weights_only=False)
+                if isinstance(sd, dict) and "policy_net" in sd:
+                    sd = sd["policy_net"]
+                consol_sds[label] = sd
+                print(f"Loaded consolidated: {label}")
+            else:
+                print(f"  (not found: {fname})")
 
     # -- PCA directions -------------------------------------------------
     # NOTE: No filter-wise normalization. With 3 experts the centered
@@ -528,23 +554,47 @@ def main() -> None:
                               alpha=0.92))
 
     # Consolidated methods (distinct markers)
+    # Draw trajectory lines connecting epoch variants first
+    for method_base, base_color in [("Dist.", "#0EA5E9"), ("Hybrid", "#EC4899")]:
+        traj_labels = [f"{method_base} {EP_LABELS[ep]}" for ep in LANDSCAPE_EPOCHS]
+        traj_pts = [(consol_coords[l][0], consol_coords[l][1])
+                    for l in traj_labels if l in consol_coords]
+        if len(traj_pts) >= 2:
+            xs, ys = zip(*traj_pts)
+            ax.plot(xs, ys, color=base_color, linewidth=1.5,
+                    linestyle="--", alpha=0.5, zorder=8)
+
     for lab, (cx, cy) in consol_coords.items():
         st = METHOD_STYLE[lab]
         ax.scatter(cx, cy, c=st["color"], s=st["size"],
                    edgecolors="white", linewidths=1.8, zorder=10,
                    marker=st["marker"], label=lab)
-        ax.annotate(lab, (cx, cy), textcoords="offset points",
-                    xytext=(10, -14), fontsize=10.5, fontweight="bold",
-                    color=TEXT,
-                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
-                              alpha=0.92))
+        # Only annotate the label text for single-run methods and the
+        # highest-budget epoch variant to reduce clutter
+        is_endpoint = (lab in ("One-Shot", "Iterative") or
+                       lab.endswith("10K ep"))
+        # For low-budget variants, just show the ep number
+        if is_endpoint:
+            ax.annotate(lab, (cx, cy), textcoords="offset points",
+                        xytext=(10, -14), fontsize=10, fontweight="bold",
+                        color=TEXT,
+                        bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                                  ec=BORDER, alpha=0.92))
+        else:
+            # Show compact ep label
+            short = lab.split()[-2] + " " + lab.split()[-1]  # e.g. "10 ep"
+            ax.annotate(short, (cx, cy), textcoords="offset points",
+                        xytext=(8, 8), fontsize=8, fontweight="500",
+                        color=TEXT_DIM,
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                                  ec=BORDER, alpha=0.85))
 
     ax.set_xlabel("PC 1", fontsize=13)
     ax.set_ylabel("PC 2", fontsize=13)
     ax.set_title("Combined Loss Landscape  \u00b7  All Models",
                  fontsize=18, fontweight="bold", pad=14)
-    ax.legend(fontsize=10.5, framealpha=0.92, loc="upper right",
-              borderpad=0.7, handletextpad=0.6)
+    ax.legend(fontsize=9.5, framealpha=0.92, loc="upper right",
+              borderpad=0.7, handletextpad=0.6, ncol=2)
     ax.tick_params(length=0)
 
     cbar = fig.colorbar(cf, ax=ax, fraction=0.03, pad=0.03)
@@ -589,6 +639,23 @@ def main() -> None:
         )
 
     # Consolidated on surface
+    # Draw trajectory lines for epoch variants
+    for method_base, base_color in [("Dist.", "#0EA5E9"), ("Hybrid", "#EC4899")]:
+        traj_labels = [f"{method_base} {EP_LABELS[ep]}" for ep in LANDSCAPE_EPOCHS]
+        traj_pts = []
+        for l in traj_labels:
+            if l not in consol_coords:
+                continue
+            cx, cy = consol_coords[l]
+            ix = np.argmin(np.abs(alphas - cx))
+            iy = np.argmin(np.abs(betas - cy))
+            cz = log_averaged[iy, ix]
+            traj_pts.append((cx, cy, cz + z_offset))
+        if len(traj_pts) >= 2:
+            txs, tys, tzs = zip(*traj_pts)
+            ax3.plot(txs, tys, tzs, color=base_color, linewidth=1.5,
+                     linestyle="--", alpha=0.5, zorder=8)
+
     for lab, (cx, cy) in consol_coords.items():
         st = METHOD_STYLE[lab]
         ix = np.argmin(np.abs(alphas - cx))
@@ -597,9 +664,15 @@ def main() -> None:
         ax3.scatter([cx], [cy], [cz + z_offset], c=st["color"], s=st["size"],
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
+        # Full label for endpoints, compact for low-budget epoch variants
+        is_endpoint = (lab in ("One-Shot", "Iterative") or
+                       lab.endswith("10K ep"))
+        txt = lab if is_endpoint else lab.split()[-2] + " " + lab.split()[-1]
         ax3.text(
-            cx, cy, cz + z_offset * 1.12, lab,
-            fontsize=9.5, fontweight="bold", color=TEXT,
+            cx, cy, cz + z_offset * 1.12, txt,
+            fontsize=9 if is_endpoint else 7.5,
+            fontweight="bold" if is_endpoint else "500",
+            color=TEXT,
             ha="center", va="bottom", zorder=20, clip_on=False,
             path_effects=[path_effects.withStroke(linewidth=2.0, foreground="white", alpha=0.9)],
         )
@@ -620,7 +693,7 @@ def main() -> None:
 
     # Legend placed outside the 3D axes to avoid clipping
     ax3.legend(
-        fontsize=9.5, framealpha=0.95, loc="upper left",
+        fontsize=8.5, framealpha=0.95, loc="upper left", ncol=2,
         bbox_to_anchor=(1.02, 1.0), borderpad=0.6, handletextpad=0.6,
         edgecolor=BORDER, facecolor=BG,
     )
