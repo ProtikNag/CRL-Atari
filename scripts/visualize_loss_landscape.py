@@ -543,15 +543,17 @@ def main() -> None:
                linewidths=0.25, alpha=0.25)
 
     # Experts (stars)
+    texts_2d = []  # collect for adjustText
     for gn, (ex, ey) in expert_coords.items():
         ax.scatter(ex, ey, c=GAME_COLORS[gn], s=220, edgecolors="white",
                    linewidths=2.5, zorder=10, marker="*",
                    label=f"{gn} Expert")
-        ax.annotate(gn, (ex, ey), textcoords="offset points",
-                    xytext=(12, 10), fontsize=12, fontweight="bold",
-                    color=TEXT,
-                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
-                              alpha=0.92))
+        texts_2d.append(ax.text(
+            ex, ey, gn, fontsize=12, fontweight="bold", color=TEXT,
+            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
+                      alpha=0.92),
+            zorder=15,
+        ))
 
     # Consolidated methods (distinct markers)
     # Draw trajectory lines connecting epoch variants first
@@ -569,25 +571,33 @@ def main() -> None:
         ax.scatter(cx, cy, c=st["color"], s=st["size"],
                    edgecolors="white", linewidths=1.8, zorder=10,
                    marker=st["marker"], label=lab)
-        # Only annotate the label text for single-run methods and the
-        # highest-budget epoch variant to reduce clutter
         is_endpoint = (lab in ("One-Shot", "Iterative") or
                        lab.endswith("10K ep"))
-        # For low-budget variants, just show the ep number
         if is_endpoint:
-            ax.annotate(lab, (cx, cy), textcoords="offset points",
-                        xytext=(10, -14), fontsize=10, fontweight="bold",
-                        color=TEXT,
-                        bbox=dict(boxstyle="round,pad=0.25", fc="white",
-                                  ec=BORDER, alpha=0.92))
+            txt = lab
+            fs, fw = 10, "bold"
         else:
-            # Show compact ep label
-            short = lab.split()[-2] + " " + lab.split()[-1]  # e.g. "10 ep"
-            ax.annotate(short, (cx, cy), textcoords="offset points",
-                        xytext=(8, 8), fontsize=8, fontweight="500",
-                        color=TEXT_DIM,
-                        bbox=dict(boxstyle="round,pad=0.2", fc="white",
-                                  ec=BORDER, alpha=0.85))
+            txt = lab.split()[-2] + " " + lab.split()[-1]
+            fs, fw = 8, "500"
+        texts_2d.append(ax.text(
+            cx, cy, txt, fontsize=fs, fontweight=fw,
+            color=TEXT if is_endpoint else TEXT_DIM,
+            bbox=dict(boxstyle="round,pad=0.25" if is_endpoint else "round,pad=0.2",
+                      fc="white", ec=BORDER,
+                      alpha=0.92 if is_endpoint else 0.85),
+            zorder=15,
+        ))
+
+    # Use adjustText to automatically space labels
+    from adjustText import adjust_text
+    adjust_text(
+        texts_2d, ax=ax,
+        arrowprops=dict(arrowstyle="-", color=BORDER, lw=0.8, alpha=0.6),
+        expand=(1.8, 2.0),
+        force_text=(1.0, 1.0),
+        force_points=(0.8, 0.8),
+        ensure_inside_axes=True,
+    )
 
     ax.set_xlabel("PC 1", fontsize=13)
     ax.set_ylabel("PC 2", fontsize=13)
