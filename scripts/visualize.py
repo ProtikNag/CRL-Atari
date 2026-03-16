@@ -305,31 +305,59 @@ def plot_training_curves(
 # ══════════════════════════════════════════════════════════════════════
 def plot_retention_heatmap(
     data: Dict[str, Dict[str, Dict]],
+    sweep: Dict[str, Dict[int, Dict[str, Dict]]],
     png_dir: str,
     svg_dir: str,
 ) -> None:
-    """Heatmap: rows = consolidation methods, cols = games.
+    """Heatmap: rows = consolidation methods (with epoch variants), cols = games.
 
     Cells show % of expert reward and absolute reward. Color encodes retention.
+    Single-run methods (One-Shot, Iterative, HTCL) get one row each.
+    Distillation and Hybrid get one row per epoch budget (10, 100, 500, 5K, 10K).
     """
     games = ["Breakout", "SpaceInvaders", "Pong"]
-    methods = [m for m in METHOD_ORDER if m != "Expert" and m in data]
-    if not methods or "Expert" not in data:
-        print("  Skipping retention heatmap: insufficient data.")
+    if "Expert" not in data:
+        print("  Skipping retention heatmap: no expert data.")
         return
 
     expert_rewards = {g: data["Expert"][g]["mean_reward"] for g in games}
 
-    n_m = len(methods)
+    # Build row list: (label, game_data_dict)
+    # Single-run methods first
+    rows: List[Tuple[str, Dict[str, Dict]]] = []
+    single_methods = [m for m in ["One-Shot", "Iterative", "HTCL"] if m in data]
+    for m in single_methods:
+        rows.append((m, data[m]))
+
+    # Epoch sweep methods: one row per epoch budget
+    group_boundaries: List[int] = []  # row indices where a new group starts
+    ep_labels = {10: "10 ep", 100: "100 ep", 500: "500 ep", 5000: "5K ep", 10000: "10K ep"}
+    for method in ["Distillation", "Hybrid"]:
+        if method not in sweep or not sweep[method]:
+            # Fallback: use default data with "(10K ep)" label
+            if method in data:
+                group_boundaries.append(len(rows))
+                rows.append((f"{method} (10K ep)", data[method]))
+            continue
+        group_boundaries.append(len(rows))
+        for ep in EPOCH_SWEEP:
+            if ep in sweep[method]:
+                rows.append((f"{method} ({ep_labels[ep]})", sweep[method][ep]))
+
+    n_m = len(rows)
     n_g = len(games)
+    if n_m == 0:
+        print("  Skipping retention heatmap: no consolidation data.")
+        return
+
     ret_matrix = np.zeros((n_m, n_g))
     raw_matrix = np.zeros((n_m, n_g))
 
-    for i, method in enumerate(methods):
+    for i, (label, gdata) in enumerate(rows):
         for j, game in enumerate(games):
-            if game not in data[method]:
+            if game not in gdata:
                 continue
-            raw = data[method][game]["mean_reward"]
+            raw = gdata[game]["mean_reward"]
             exp = expert_rewards[game]
             raw_matrix[i, j] = raw
             if exp != 0:
@@ -337,7 +365,7 @@ def plot_retention_heatmap(
             else:
                 ret_matrix[i, j] = 100.0 if raw == 0 else 0.0
 
-    fig, ax = plt.subplots(figsize=(7.5, 0.6 * n_m + 2.5))
+    fig, ax = plt.subplots(figsize=(8, 0.55 * n_m + 2.5))
 
     # Diverging colormap centered around 50% retention
     from matplotlib.colors import TwoSlopeNorm
@@ -352,26 +380,32 @@ def plot_retention_heatmap(
         for j in range(n_g):
             pct = ret_matrix[i, j]
             raw = raw_matrix[i, j]
-            # Choose text color based on background lightness
             text_color = AC_BG if pct < 20 or pct > 80 else AC_TEXT
             ax.text(
                 j, i,
                 f"{raw:.1f}\n({pct:.0f}%)",
                 ha="center", va="center",
-                fontsize=10, fontweight="600",
+                fontsize=9, fontweight="600",
                 color=text_color,
             )
 
+    row_labels = [r[0] for r in rows]
     ax.set_xticks(range(n_g))
     ax.set_xticklabels(games, fontsize=11)
     ax.set_yticks(range(n_m))
-    ax.set_yticklabels(methods, fontsize=11)
+    ax.set_yticklabels(row_labels, fontsize=10)
 
     # White grid lines between cells
     for e in range(n_g + 1):
         ax.axvline(e - 0.5, color="white", linewidth=2.5)
     for e in range(n_m + 1):
         ax.axhline(e - 0.5, color="white", linewidth=2.5)
+
+    # Thick separator lines between method groups
+    for boundary in group_boundaries:
+        ax.axhline(
+            boundary - 0.5, color=AC_AXIS, linewidth=2.0, zorder=5,
+        )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
     cbar.set_label("% of Expert Reward", fontsize=11)
@@ -525,7 +559,9 @@ def plot_reward_distributions(
             positions.append(i)
             box_data.append(rewards)
             colors_list.append(METHOD_COLORS.get(method, AC_SERIES[i % len(AC_SERIES)]))
-            labels.append(method)
+            # Clarify epoch budget for sweep methods
+            display = f"{method} (10K ep)" if method in ("Distillation", "Hybrid") else method
+            labels.append(display)
 
         if not box_data:
             continue
@@ -612,7 +648,7 @@ def main() -> None:
     print("Generating figures...")
 
     plot_training_curves(histories, png_dir, svg_dir)
-    plot_retention_heatmap(data, png_dir, svg_dir)
+    plot_retention_heatmap(data, sweep, png_dir, svg_dir)
     plot_sample_efficiency(sweep, data.get("Expert", {}), png_dir, svg_dir)
     plot_reward_distributions(data, png_dir, svg_dir)
 
