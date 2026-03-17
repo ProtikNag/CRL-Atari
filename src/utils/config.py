@@ -110,6 +110,10 @@ def get_effective_config(
                 "multitask_total_timesteps", 10000
             )
 
+        # WHC debug overrides
+        if "whc" in config:
+            config["whc"]["fisher_samples"] = debug_cfg.get("fisher_samples", 100)
+
         # Also override evaluation episodes for compare.py
         config["evaluation"]["episodes"] = debug_cfg.get("eval_episodes", 2)
 

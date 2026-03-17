@@ -188,6 +188,14 @@ multitask:
   # buffer_per_task: 166_666
   # min_buffer_per_task: 16_666
 
+# --- Weighted Hessian Consolidation (WHC) ---
+# Closed-form Hessian-weighted consolidation from expert_consolidation.pdf.
+# Fisher computed at each expert's own optimum for minimal |L(w) - L_tilde(w)|.
+whc:
+  lambda_reg: 1.0              # Tikhonov regularization (Eq. 13)
+  fisher_samples: 20000        # states sampled per task for diagonal Fisher
+  # alpha_weights: null        # task weights (uniform by default)
+
 # --- Evaluation ---
 evaluation:
   episodes: 30
