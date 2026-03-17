@@ -1,6 +1,6 @@
 # CRL-Atari: Continual Reinforcement Learning on Atari Games
 
-Continual Reinforcement Learning (CRL) framework that trains DQN expert agents on a sequence of Atari games and consolidates them into a single model using two knowledge consolidation methods: **Knowledge Distillation** and **HTCL**.
+Continual Reinforcement Learning (CRL) framework that trains DQN expert agents on a sequence of Atari games and consolidates them into a single model. Implements five consolidation methods (Knowledge Distillation, One-Shot, Iterative, Hybrid, WHC) alongside two baselines (EWC, Multi-task joint training), providing a comprehensive empirical testbed for the theory developed in [Nag, Raghavan, Narayanan 2026].
 
 ## Overview
 
@@ -14,8 +14,9 @@ Different Atari games are presented **sequentially** as distinct tasks. The goal
 |---|---|
 | Different action spaces across games | **Union action space** (6 actions for current task set). Only valid actions per game are used during selection and training. |
 | Q-value scale imbalance | **PopArt normalization** rescales output layer weights when target statistics change, preserving network predictions. |
-| Catastrophic forgetting | Two consolidation methods compared: Distillation, HTCL. |
+| Catastrophic forgetting | Five consolidation methods + two baselines compared across tasks. |
 | Expert diversity | Each expert starts from **random initialization** and trains independently. |
+| Action-space mismatch in Taylor updates | **Action-masked drift**: head-layer rows for unused actions are zeroed before applying any Taylor correction. |
 
 ### Task Sequence (Default)
 
@@ -23,52 +24,63 @@ Different Atari games are presented **sequentially** as distinct tasks. The goal
 2. **SpaceInvaders** (6 actions)
 3. **Pong** (6 actions)
 
-> **Why this order?** HTCL initializes the global model from the first expert
-> and only registers Fisher protection for it (no Taylor update toward it) on
-> pass 0.  Placing Pong last ensures it receives a corrective Taylor update
-> rather than being silently overwritten by later tasks.
-
 ## Project Structure
 
 ```
 CRL-Atari/
 ├── configs/
-│   └── base.yaml              # All hyperparameters (training, consolidation, debug)
+│   └── base.yaml                    # All hyperparameters (training, consolidation, debug)
 ├── src/
 │   ├── models/
-│   │   └── dqn.py             # DQN with union action head
+│   │   └── dqn.py                   # DQN with union action head (standard + dueling)
 │   ├── agents/
-│   │   └── dqn_agent.py       # Agent: epsilon-greedy, action masking, Double DQN
+│   │   └── dqn_agent.py             # Agent: epsilon-greedy, action masking, Double DQN
 │   ├── data/
-│   │   ├── replay_buffer.py   # Circular replay buffer (uint8 storage)
-│   │   └── atari_wrappers.py  # DeepMind-style Atari preprocessing
+│   │   ├── replay_buffer.py         # Circular replay buffer (uint8 storage)
+│   │   └── atari_wrappers.py        # DeepMind-style Atari preprocessing
 │   ├── consolidation/
-│   │   ├── distillation.py    # Knowledge Distillation (temperature-scaled)
-│   │   └── htcl.py            # Hierarchical Taylor-based Continual Learning
+│   │   ├── distillation.py          # Knowledge Distillation (temperature-scaled KL)
+│   │   ├── oneshot.py               # One-Shot Joint Consolidation (Section 3, Thm 3.4)
+│   │   ├── iterative.py             # Multi-Round Iterative Consolidation (Section 4, Alg 1)
+│   │   ├── hybrid.py                # Hybrid: Iterative Taylor + KD refinement (Section 5, Alg 2)
+│   │   ├── whc.py                   # Weighted Hessian Consolidation (Eq. 11–13)
+│   │   └── htcl.py                  # HTCL: sequential multi-pass Taylor consolidation
+│   ├── baselines/
+│   │   ├── ewc.py                   # Elastic Weight Consolidation (Kirkpatrick et al. 2017)
+│   │   └── multitask.py             # Multi-task joint training (upper-bound oracle)
 │   ├── trainers/
-│   │   └── expert_trainer.py  # Training loop + inline reward curve generation
+│   │   └── expert_trainer.py        # Training loop + reward curve generation
 │   └── utils/
-│       ├── config.py          # YAML config loading + debug mode
-│       ├── seed.py            # Reproducibility (all RNG seeds)
-│       ├── logger.py          # TensorBoard + CSV + console logging
-│       └── normalization.py   # PopArt Q-value normalizer
+│       ├── config.py                # YAML config loading + debug mode
+│       ├── seed.py                  # Reproducibility (all RNG seeds)
+│       ├── logger.py                # TensorBoard + CSV + console logging
+│       └── normalization.py         # PopArt Q-value normalizer
 ├── scripts/
-│   ├── train_experts.py       # Train expert DQN per task (sequential)
-│   ├── consolidate.py         # Merge experts via Distillation / HTCL
-│   ├── evaluate.py            # Evaluate any model on any task
-│   ├── compare.py             # Comprehensive comparison + plots
-│   ├── visualize.py           # Additional visualization utilities
-│   ├── generate_report.py     # Generate HTML technical report
-│   └── play.py                # Watch a trained agent play (pygame GUI)
-├── main.py                    # Debug-friendly entry point (runs locally)
-├── run_consolidate.sh         # Consolidation + evaluation pipeline
-├── run_train_experts.sh       # Expert training pipeline (SLURM-compatible)
+│   ├── train_experts.py             # Train expert DQN per task (sequential)
+│   ├── train_ewc.py                 # Sequential EWC training
+│   ├── train_multitask.py           # Multi-task joint training
+│   ├── consolidate.py               # Merge experts (distillation / oneshot / iterative / hybrid / whc)
+│   ├── evaluate.py                  # Evaluate any checkpoint on any task
+│   ├── compare.py                   # Comprehensive comparison + plots
+│   ├── visualize.py                 # Core visualization suite (4 focused figures)
+│   ├── visualize_loss_landscape.py  # 2D/3D loss landscape in PCA-projected weight space
+│   ├── visualize_hybrid.py          # Hybrid method deep-dive analysis
+│   ├── visualize_qvalues.py         # Q-value distribution analysis (KDE, violins, heatmaps)
+│   ├── visualize_umap.py            # UMAP feature space visualization
+│   ├── generate_report.py           # Generate HTML technical report
+│   └── play.py                      # Watch a trained agent play (pygame GUI)
+├── docs/
+│   └── report.html                  # Technical experiment report
+├── main.py                          # Debug-friendly entry point (runs locally)
+├── run_train_experts.sh             # Expert training pipeline (SLURM-compatible)
+├── run_consolidate.sh               # Consolidation + evaluation pipeline
+├── run_epoch_sweep.sh               # Distillation epoch-count sweep
 ├── requirements.txt
 ├── results/
-│   ├── logs/                  # TensorBoard + CSV logs
-│   ├── checkpoints/           # Model checkpoints (best per expert)
-│   └── figures/               # Reward curves and comparison plots (PNG + SVG)
-└── notebooks/                 # Analysis only
+│   ├── logs/                        # TensorBoard + CSV logs
+│   ├── checkpoints/                 # Model checkpoints
+│   └── figures/                     # All plots (PNG + SVG) + eval JSON files
+└── notebooks/                       # Analysis only
 ```
 
 ## Quickstart
@@ -76,21 +88,16 @@ CRL-Atari/
 ### 1. Setup
 
 ```bash
-# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Accept Atari ROM license (required once)
-pip install gymnasium[accept-rom-license]
+pip install gymnasium[accept-rom-license]   # Accept Atari ROM license (once)
 ```
 
 ### 2. Train Experts
 
 ```bash
-# Train experts on Hyperion (SLURM)
+# Train on Hyperion (SLURM)
 sbatch run_train_experts.sh --tag full_run_v1
 
 # Or locally in debug mode
@@ -112,121 +119,159 @@ Training runs for **3M environment steps** per expert (configurable in `configs/
 ./run_consolidate.sh --skip-consolidate --tag full_run_v1
 ```
 
-### 4. Debug Locally (No Shell Script)
+### 4. Debug Locally
 
 ```bash
-# Run everything in debug mode from Python directly
-python main.py
-
-# Only train experts
-python main.py --step train
-
-# Only consolidate (after training)
-python main.py --step consolidate --method htcl
-
-# Only compare (after all checkpoints exist)
-python main.py --step compare
-
-# Full training (non-debug)
-python main.py --no-debug --tag full_run
+python main.py                                        # Full pipeline (debug)
+python main.py --step train                           # Only experts
+python main.py --step consolidate --method hybrid     # Only consolidate
+python main.py --step compare                         # Only compare
+python main.py --no-debug --tag full_run              # Full training
 ```
 
 ### 5. Run Individual Scripts
 
 ```bash
-# Consolidate with a specific method
-python scripts/consolidate.py --method htcl --debug --tag myexp
+# Consolidate with any method
 python scripts/consolidate.py --method distillation --debug --tag myexp
+python scripts/consolidate.py --method oneshot       --debug --tag myexp
+python scripts/consolidate.py --method iterative     --debug --tag myexp
+python scripts/consolidate.py --method hybrid        --debug --tag myexp
+python scripts/consolidate.py --method whc           --debug --tag myexp
+
+# EWC and multi-task (separate training scripts)
+python scripts/train_ewc.py       --debug --tag myexp
+python scripts/train_multitask.py --debug --tag myexp
 
 # Evaluate a checkpoint on all tasks
-python scripts/evaluate.py --model-path results/checkpoints/myexp/consolidated_htcl.pt --all-tasks --debug
+python scripts/evaluate.py --model-path results/checkpoints/myexp/consolidated_hybrid.pt --all-tasks --debug
 
 # Generate comparison plots
 python scripts/compare.py --debug --tag myexp
+
+# Distillation epoch-count sweep
+./run_epoch_sweep.sh --tag myexp
 ```
 
 ### 6. Watch an Agent Play
 
 ```bash
-# Watch the best Pong expert play
 python scripts/play.py --game Pong
-
-# Watch with faster playback
 python scripts/play.py --game Breakout --speed 2
-
-# Watch a consolidated model play
-python scripts/play.py --game SpaceInvaders --model-path results/checkpoints/default/consolidated_htcl.pt
-
-# List available games and checkpoints
+python scripts/play.py --game SpaceInvaders --model-path results/checkpoints/default/consolidated_hybrid.pt
 python scripts/play.py --list-games
 ```
 
 **Controls**: `Q`/`ESC` quit, `R` restart, `P`/`Space` pause, `+`/`-` speed.
 
-## Training & Visualization
-
-Expert training automatically generates reward curves at the end of each expert's training run. Both per-game and combined multi-panel figures are saved in `results/figures/{png,svg}/`.
-
-Generated figures:
-- `expert_{Game}_reward_curve.{png,svg}` — per-game curve with raw + smoothed rewards and best-point marker
-- `expert_all_reward_curves.{png,svg}` — combined side-by-side panel for all games
-
-Training also resumes from the best checkpoint if one exists, so re-running the pipeline continues where you left off.
-
 ## Consolidation Methods
+
+All methods share a common interface: load expert checkpoints, collect high-confidence replay data, apply the consolidation update, and save the merged model.
 
 ### 1. Knowledge Distillation
 
-Trains a student (global) model to match the soft Q-value distributions of all teachers (experts) using temperature-scaled softmax. Q-values are normalized per-task before distillation.
+Trains a student (global) model to match the soft Q-value distributions of all expert teachers using temperature-scaled KL divergence. Q-values are normalized per-task (zero-mean, unit-variance) before applying softmax to handle reward scale differences.
 
-**Key hyperparameters** (in `configs/base.yaml`):
-- `temperature`: Softmax temperature (default: 2.0)
-- `alpha`: Distillation vs task loss weight (default: 0.5)
-- `distill_epochs`: Training epochs (default: 50)
-
-### 2. HTCL (Hierarchical Taylor-based Continual Learning)
-
-From [Nag, Raghavan, Narayanan 2026]. Uses a second-order Taylor expansion around the global model to find an optimal parameter update that balances:
-- **Stability**: staying in low-curvature regions of the past-task loss landscape
-- **Plasticity**: moving toward the new expert's parameters
-
-$$\mathbf{w}^{(t)} = \mathbf{w}^{(t-1)} + (\mathbf{H} + \lambda \mathbf{I})^{-1} [\lambda \Delta\mathbf{d} - \mathbf{g}]$$
-
-**Action-masked Taylor update**: When the current expert uses fewer actions than the union space (e.g., Breakout uses 4 of 6), the expert drift $\Delta\mathbf{d}$ for head-layer rows corresponding to unused actions is zeroed out. This prevents untrained Q-head weights from corrupting the consolidated model.
-
-**Multi-pass consolidation**: The task sequence is iterated `num_passes` times with geometrically decaying step size ($\eta \times 0.3^{\text{pass}}$), allowing the cumulative Fisher to protect earlier tasks.
-
-**Joint refinement**: After multi-pass, Fisher and gradient are computed jointly over all tasks and a final averaged Taylor correction is applied with a reduced step size.
+$$\mathcal{L}_\text{KD} = \frac{1}{N} \sum_{i} T^2 \, D_\text{KL}\!\left(\sigma(Q_\text{expert}^{(i)}/T) \;\|\; \sigma(Q_\text{student}/T)\right)$$
 
 **Key hyperparameters**:
-- `lambda_candidates`: Per-lambda grid (default: `[0.1, 1.0, 10.0, 100.0, 1000.0]`)
-- `eta`: Taylor update step size (default: 0.9)
-- `num_passes`: Multi-pass iterations (default: 3)
-- `joint_refinement`: Enable joint refinement step (default: true)
-- `diagonal_fisher`: Use diagonal Fisher for Hessian approximation (default: true)
+- `temperature`: Softmax temperature (default: 0.01)
+- `epochs`: Training epochs (default: 10,000)
+- `lr`: Learning rate (default: 5e-5)
 
-## Comparison Visualisations
+### 2. One-Shot Joint Consolidation
 
-Running `scripts/compare.py` generates the following plots (PNG + SVG):
+Single closed-form Taylor step at the ensemble-mean anchor. Fisher and gradient are averaged over all experts; the drift centroid $\mathbf{d}^*$ vanishes by symmetry (Remark 3.6), reducing the update to a Newton step:
 
-| Plot | File | Description |
-|---|---|---|
-| Grouped bar chart | `comparison_bar` | Mean reward per game per method (with error bars) |
-| Performance heatmap | `performance_heatmap` | Raw rewards and % of expert performance |
-| Box plots | `reward_distributions` | Per-episode reward distributions per game |
-| Radar chart | `radar_chart` | Normalised multi-game profile (100% = expert) |
-| Forgetting gap | `forgetting_gap` | Reward gap (expert − consolidated) per game |
-| Relative performance | `relative_performance` | % of expert reward per game |
-| Summary table | `summary_table` | Publication-ready statistics table (Avg % Expert) |
-| Lambda selection | `lambda_selection_curve` | Per-lambda KL divergence to experts |
-| Lambda KL per task | `lambda_kl_lam*` | Per-task KL breakdown for each lambda |
+$$\mathbf{u}^* = -(\bar{\mathbf{F}} + \lambda \mathbf{I})^{-1}\bar{\mathbf{g}}, \quad \mathbf{w}_g = \bar{\mathbf{w}} + \mathbf{u}^*$$
+
+No step size or iteration is used. Fisher is computed on 20K high-confidence states per task (ranked by Q-value gap).
+
+### 3. Iterative Consolidation
+
+Extends One-Shot to $K$ rounds. Each round re-expands around the current global model and applies a decaying Taylor correction:
+
+$$\mathbf{w}_g^{(k+1)} = \mathbf{w}_g^{(k)} + \eta_k \left(\bar{\mathbf{F}}_k + \lambda \mathbf{I}\right)^{-1}\!\left[\lambda \mathbf{d}_k^* - \bar{\mathbf{g}}_k\right]$$
+
+**Key hyperparameters**:
+- `num_rounds`: $K$ (default: 10)
+- `eta`: Initial step size $\eta_0$ (default: 0.9)
+- `gamma`: Step-size decay $\gamma$ (default: 0.9)
+- `recompute_fisher`: Recompute Fisher each round or cache (default: false)
+
+### 4. Hybrid (Iterative Taylor + KD)
+
+Two-phase consolidation. Phase 1 provides a Taylor warm start (identical to Iterative above). Phase 2 refines via knowledge distillation starting from the warm-start solution rather than the raw ensemble mean. Theorem 5.2 bounds the reduction in KD convergence gap as a function of the Taylor approximation quality.
+
+- **Phase 1**: $K=10$ rounds, $\eta_0=0.9$, $\gamma=0.9$, cached Fisher
+- **Phase 2**: KD for 10,000 epochs, $T=0.01$, lr $= 5\times 10^{-5}$
+
+Epoch snapshots are saved at 10, 100, 500, 5K, and 10K epochs for convergence analysis.
+
+### 5. Weighted Hessian Consolidation (WHC)
+
+Closed-form solution derived from a surrogate loss formed by Hessian-weighted quadratic approximations expanded **at each expert's own optimum** (not a shared anchor). This placement minimizes the Taylor remainder and eliminates the gradient term entirely.
+
+$$\hat{\mathbf{w}}_\lambda = \left(\sum_i \alpha_i \mathbf{H}_i + \lambda \mathbf{I}\right)^{-1} \sum_i \alpha_i \mathbf{H}_i \mathbf{w}_i^*$$
+
+**Key hyperparameters**:
+- `lambda_reg`: Tikhonov regularization (default: 1.0)
+- `fisher_samples`: States for Fisher estimation (default: 20,000)
+
+## Baselines
+
+### EWC (Elastic Weight Consolidation)
+
+Sequential continual learning with a Fisher-weighted L2 penalty that anchors parameters toward previous task solutions during fine-tuning:
+
+$$\mathcal{L}_\text{EWC}(\theta) = \mathcal{L}_\text{task}(\theta) + \frac{\lambda}{2} \sum_{i,j} F_i^j \left(\theta_j - \theta_{i,j}^*\right)^2$$
+
+Implements both standard EWC (per-task Fisher storage) and Online EWC (Schwarz et al. 2018, exponential Fisher averaging). Trained via `scripts/train_ewc.py` sequentially on the task order.
+
+**Key hyperparameters**: `lambda`: 5000.0, `fisher_samples`: 5000, `gamma_ewc`: 0.95
+
+### Multi-Task Joint Training
+
+A single DQN trained simultaneously on all tasks via round-robin environment stepping and random task sampling. Serves as an oracle upper bound since it is never subject to catastrophic forgetting. Trained via `scripts/train_multitask.py` for 6M total steps (~2M per task).
+
+## Visualizations
+
+### Expert Training
+
+Reward curves are generated automatically at the end of each expert's run:
+- `01_expert_training_curves.{png,svg}` — combined multi-panel reward curves
+- `02_retention_heatmap.{png,svg}` — per-method expert retention heatmap
+- `03_sample_efficiency.{png,svg}` — reward vs environment steps
+- `04_reward_distributions.{png,svg}` — per-episode reward box plots
+
+### Loss Landscape (`scripts/visualize_loss_landscape.py`)
+
+PCA-projected 2D/3D loss landscapes showing expert optima and consolidated model positions:
+- `loss_landscape_combined_default.{png,svg}` — all experts + all methods (2D)
+- `loss_landscape_per_game_default.{png,svg}` — per-game landscapes
+- `loss_landscape_3d_default.{png,svg}` — 3D surface
+
+### Q-Value Analysis (`scripts/visualize_qvalues.py`)
+
+- `qvalue_maxq_kde_default.{png,svg}` — max-Q KDE per game
+- `qvalue_action_violins_default.{png,svg}` — per-action Q distributions
+- `qvalue_action_heatmap_default.{png,svg}` — action-preference heatmap
+- `qvalue_umap_default.{png,svg}` — UMAP of Q-value vectors
+
+### Feature Space (`scripts/visualize_umap.py`)
+
+- `umap_expert_default.{png,svg}` — UMAP of penultimate-layer activations across tasks
+
+### Distillation Epoch Sweep (`run_epoch_sweep.sh`)
+
+Sweeps distillation epochs across {10, 100, 500, 5K, 10K} for both Distillation and Hybrid, saving intermediate checkpoints and evaluation JSON files for convergence analysis.
 
 ## Configuration
 
-All hyperparameters live in [`configs/base.yaml`](configs/base.yaml). The config system supports:
+All hyperparameters live in [`configs/base.yaml`](configs/base.yaml).
 
-- **Debug mode**: Set `--debug` to use reduced training (~10K steps). Ideal for testing pipeline correctness.
-- **Override configs**: Pass `--override-config path/to/override.yaml` to selectively override base settings.
+- **Debug mode**: `--debug` reduces training to ~10K steps. Ideal for pipeline testing.
+- **Override configs**: `--override-config path/to/override.yaml` for selective overrides.
 - **Per-run saving**: Each run saves its effective config to the log directory.
 
 ### Key Config Sections
@@ -237,8 +282,9 @@ All hyperparameters live in [`configs/base.yaml`](configs/base.yaml). The config
 | `model` | CNN architecture: channels, kernels, FC size |
 | `training` | Expert training: LR, buffer, exploration, etc. |
 | `normalization` | PopArt Q-value normalization settings |
-| `consolidation` | Shared consolidation settings |
-| `distillation`, `htcl` | Method-specific hyperparameters |
+| `consolidation` | Shared consolidation settings (fisher samples, buffer size) |
+| `distillation`, `oneshot`, `iterative`, `hybrid`, `whc` | Method-specific hyperparameters |
+| `ewc`, `multitask` | Baseline hyperparameters |
 | `evaluation` | Eval episodes, deterministic flag |
 | `logging` | Log/checkpoint/figure directories, TensorBoard |
 | `debug` | Reduced values for fast local testing |
@@ -257,22 +303,29 @@ Input: (batch, 4, 84, 84)  [4 stacked grayscale frames]
 
 **Parameter count**: ~1.7M.
 
-The union action space is computed at runtime from the minimal action sets of all games in the task sequence. For {Pong, Breakout, SpaceInvaders}, the union is [0, 1, 3, 4, 11, 12] = [NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE] = 6 actions. Per-game action masking sets invalid actions' Q-values to $-\infty$ during action selection and training.
+The union action space is computed at runtime from the minimal action sets of all games in the task sequence. For {Breakout, SpaceInvaders, Pong}, the union is {NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE} = 6 actions. Per-game action masking sets invalid actions' Q-values to $-\infty$ during selection and training.
 
-**Double DQN** is enabled by default — the policy network selects actions while the target network evaluates them, reducing overestimation bias.
+**Double DQN** is enabled by default — policy network selects actions, target network evaluates them.
 
 ## Outputs
 
-After a full run, you'll find:
+After a full run:
 
 | Path | Content |
 |---|---|
 | `results/checkpoints/<tag>/expert_*_best.pt` | Best expert per game |
-| `results/checkpoints/<tag>/consolidated_distillation.pt` | Distillation-merged model |
-| `results/checkpoints/<tag>/consolidated_htcl_lam*.pt` | HTCL-merged models (one per lambda) |
+| `results/checkpoints/<tag>/consolidated_distillation.pt` | Distillation model |
+| `results/checkpoints/<tag>/consolidated_distillation_ep*.pt` | Epoch snapshots (10, 100, 500, 5K, 10K) |
+| `results/checkpoints/<tag>/consolidated_oneshot.pt` | One-Shot model |
+| `results/checkpoints/<tag>/consolidated_iterative.pt` | Iterative model |
+| `results/checkpoints/<tag>/consolidated_hybrid.pt` | Hybrid model |
+| `results/checkpoints/<tag>/consolidated_hybrid_ep*.pt` | Hybrid epoch snapshots |
+| `results/checkpoints/<tag>/consolidated_whc.pt` | WHC model |
+| `results/checkpoints/<tag>/consolidated_ewc.pt` | EWC model |
 | `results/checkpoints/<tag>/htcl_fisher_log.json` | Fisher / Hessian diagnostics |
 | `results/figures/png/` | All comparison plots (PNG) |
 | `results/figures/svg/` | All comparison plots (SVG) |
+| `results/figures/eval_*_<tag>.json` | Per-method evaluation results |
 | `results/figures/comparison_results_<tag>.json` | Numerical results summary |
 | `results/figures/comparison_full_<tag>.json` | Full results with per-episode rewards |
 | `results/logs/` | TensorBoard events + CSV metrics |
@@ -293,8 +346,10 @@ Options:
 
 ## References
 
-- Hinton et al., "Distilling the knowledge in a neural network", 2015 (Knowledge Distillation)
-- Nag, Raghavan, Narayanan, "Mitigating Task-Order Sensitivity and Forgetting via Hierarchical Second-Order Consolidation", 2026 (HTCL)
+- Nag, Raghavan, Narayanan, "Mitigating Task-Order Sensitivity and Forgetting via Hierarchical Second-Order Consolidation", 2026 (One-Shot, Iterative, Hybrid, WHC)
+- Kirkpatrick et al., "Overcoming catastrophic forgetting in neural networks", PNAS 2017 (EWC)
+- Schwarz et al., "Progress & compress: A scalable framework for continual learning", ICML 2018 (Online EWC)
+- Hinton et al., "Distilling the knowledge in a neural network", NeurIPS Workshop 2014 (Knowledge Distillation)
 - Mnih et al., "Human-level control through deep reinforcement learning", Nature 2015 (DQN)
 - van Hasselt et al., "Deep Reinforcement Learning with Double Q-learning", AAAI 2016 (Double DQN)
 - van Hasselt et al., "Learning values across many orders of magnitude", NeurIPS 2016 (PopArt)
