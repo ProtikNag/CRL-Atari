@@ -1,0 +1,54 @@
+[2026-03-16 10:44:36] INFO - Consolidation method: whc
+[2026-03-16 10:44:36] INFO - Device: mps
+[2026-03-16 10:44:36] INFO - Debug: True
+[2026-03-16 10:44:36] INFO - Tag: default
+[2026-03-16 10:44:36] INFO - Config: configs/base.yaml
+[2026-03-16 10:44:36] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+[2026-03-16 10:44:36] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-16 10:44:36] INFO - WHC config: lambda_reg=1.0, fisher_samples=100
+[2026-03-16 10:44:36] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-16 10:44:45] INFO - Loaded 3 expert models in 8.8s.
+[2026-03-16 10:44:45] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=2000
+[2026-03-16 10:44:45] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=2000
+[2026-03-16 10:44:45] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=2000
+[2026-03-16 10:44:45] INFO - Filtering replay buffers to top-500 high-confidence states per expert...
+[2026-03-16 10:44:45] INFO -   Pong: 500 states filtered from 2000 raw transitions
+[2026-03-16 10:44:45] INFO -   Breakout: 500 states filtered from 2000 raw transitions
+[2026-03-16 10:44:45] INFO -   SpaceInvaders: 500 states filtered from 2000 raw transitions
+[2026-03-16 10:44:45] INFO - Initialising WHC (Fisher at each expert's own optimum)...
+[2026-03-16 10:44:45] INFO - Starting Weighted Hessian Consolidation (lambda=1.0000, alphas=[0.3333333333333333, 0.3333333333333333, 0.3333333333333333], N=3)...
+[2026-03-16 10:44:45] INFO -   [1/3] Computing Fisher for Pong at expert optimum (alpha=0.333)...
+[2026-03-16 10:44:49] INFO -     Fisher norms (sample): {'features.0.weight': 0.06985694915056229, 'features.0.bias': 0.02596738561987877, 'features.2.weight': 0.03655783087015152}
+[2026-03-16 10:44:49] INFO -   [2/3] Computing Fisher for Breakout at expert optimum (alpha=0.333)...
+[2026-03-16 10:44:49] INFO -     Fisher norms (sample): {'features.0.weight': 0.11986903101205826, 'features.0.bias': 4.339776515960693, 'features.2.weight': 0.07854259759187698}
+[2026-03-16 10:44:49] INFO -   [3/3] Computing Fisher for SpaceInvaders at expert optimum (alpha=0.333)...
+[2026-03-16 10:44:50] INFO -     Fisher norms (sample): {'features.0.weight': 0.034829191863536835, 'features.0.bias': 0.2339114248752594, 'features.2.weight': 0.016034960746765137}
+[2026-03-16 10:44:50] INFO -   Solving closed-form consolidation (lambda=1.0)...
+[2026-03-16 10:44:50] INFO -   Distance from ensemble mean: 38.5781
+[2026-03-16 10:44:50] INFO -   Distance from Pong expert: 54.0099
+[2026-03-16 10:44:50] INFO -   Distance from Breakout expert: 68.0595
+[2026-03-16 10:44:50] INFO -   Distance from SpaceInvaders expert: 74.7565
+[2026-03-16 10:44:50] INFO - Weighted Hessian Consolidation complete.
+[2026-03-16 10:44:50] INFO - WHC model saved to results/checkpoints/default/consolidated_whc.pt
+[2026-03-16 10:44:50] INFO - Consolidated model param norm: 0.2144
+[2026-03-16 10:44:50] INFO - Total consolidation time (whc): 14.6s
+[2026-03-16 10:44:57] INFO - Consolidation method: whc
+[2026-03-16 10:44:57] INFO - Device: mps
+[2026-03-16 10:44:57] INFO - Debug: False
+[2026-03-16 10:44:57] INFO - Tag: default
+[2026-03-16 10:44:57] INFO - Config: configs/base.yaml
+[2026-03-16 10:44:57] INFO - Task sequence: ['BreakoutNoFrameskip-v4', 'SpaceInvadersNoFrameskip-v4', 'PongNoFrameskip-v4']
+[2026-03-16 10:44:57] INFO - Union action space: [0, 1, 3, 4, 11, 12] (6 actions)
+[2026-03-16 10:44:57] INFO - WHC config: lambda_reg=1.0, fisher_samples=20000
+[2026-03-16 10:44:57] INFO - Loading expert checkpoints and collecting replay data...
+[2026-03-16 10:51:14] INFO - Loaded 3 expert models in 376.6s.
+[2026-03-16 10:51:14] INFO -   Pong: best_reward=20.20, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-16 10:51:14] INFO -   Breakout: best_reward=386.30, valid_actions=[0, 1, 2, 3], buffer_size=100000
+[2026-03-16 10:51:14] INFO -   SpaceInvaders: best_reward=1162.50, valid_actions=[0, 1, 2, 3, 4, 5], buffer_size=100000
+[2026-03-16 10:51:14] INFO - Filtering replay buffers to top-50000 high-confidence states per expert...
+[2026-03-16 10:51:18] INFO -   Pong: 50000 states filtered from 100000 raw transitions
+[2026-03-16 10:51:21] INFO -   Breakout: 50000 states filtered from 100000 raw transitions
+[2026-03-16 10:51:24] INFO -   SpaceInvaders: 50000 states filtered from 100000 raw transitions
+[2026-03-16 10:51:24] INFO - Initialising WHC (Fisher at each expert's own optimum)...
+[2026-03-16 10:51:24] INFO - Starting Weighted Hessian Consolidation (lambda=1.0000, alphas=[0.3333333333333333, 0.3333333333333333, 0.3333333333333333], N=3)...
+[2026-03-16 10:51:24] INFO -   [1/3] Computing Fisher for Pong at expert optimum (alpha=0.333)...

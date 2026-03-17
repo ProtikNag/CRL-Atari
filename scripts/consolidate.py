@@ -38,17 +38,18 @@ from src.consolidation.distillation import DistillationConsolidator
 from src.consolidation.oneshot import OneShotConsolidator
 from src.consolidation.iterative import IterativeConsolidator
 from src.consolidation.hybrid import HybridConsolidator
+from src.consolidation.whc import WHCConsolidator
 from src.utils.config import get_effective_config, save_config
 from src.utils.seed import set_seed
 from src.utils.logger import setup_logger
 
 # -- Supported methods ---------------------------------------------------------
 
-ALL_METHODS = ["distillation", "oneshot", "iterative", "hybrid"]
+ALL_METHODS = ["distillation", "oneshot", "iterative", "hybrid", "whc"]
 
 # Methods that need Fisher/gradient infrastructure (high-confidence states,
 # frozen expert models, etc.)
-TAYLOR_METHODS = {"oneshot", "iterative", "hybrid"}
+TAYLOR_METHODS = {"oneshot", "iterative", "hybrid", "whc"}
 
 
 # -- Helpers -------------------------------------------------------------------
@@ -405,6 +406,32 @@ def run_hybrid(
     return consolidated
 
 
+def run_whc(
+    config, expert_results, filtered_states_list, expert_models,
+    device, logger, tag,
+):
+    """Run Weighted Hessian Consolidation."""
+    global_model = build_model(config, device)
+    logger.info(
+        "Initialising WHC (Fisher at each expert's own optimum)..."
+    )
+
+    consolidator = WHCConsolidator(config, device=device, logger=logger)
+    consolidated = consolidator.consolidate(
+        global_model, expert_results,
+        filtered_states_list=filtered_states_list,
+        expert_models=expert_models,
+    )
+
+    save_path = os.path.join(
+        config["logging"]["checkpoint_dir"], tag, "consolidated_whc.pt",
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(consolidated.state_dict(), save_path)
+    logger.info(f"WHC model saved to {save_path}")
+    return consolidated
+
+
 # -- Main ----------------------------------------------------------------------
 
 def main():
@@ -521,6 +548,12 @@ def main():
             f"KD epochs={hy_cfg.get('kd_epochs', 25)}, "
             f"lr={hy_cfg.get('kd_lr', 2.5e-5)}"
         )
+    elif args.method == "whc":
+        whc_cfg = config.get("whc", {})
+        logger.info(
+            f"WHC config: lambda_reg={whc_cfg.get('lambda_reg', 1.0)}, "
+            f"fisher_samples={whc_cfg.get('fisher_samples', 20000)}"
+        )
 
     # -- Load expert results --
     _t0 = _time.time()
@@ -566,6 +599,11 @@ def main():
         consolidated = run_hybrid(
             config, expert_results, filtered_states_list, expert_models,
             device, logger, args.tag, snapshot_epochs=snapshot_epochs,
+        )
+    elif args.method == "whc":
+        consolidated = run_whc(
+            config, expert_results, filtered_states_list, expert_models,
+            device, logger, args.tag,
         )
     else:
         raise ValueError(f"Unknown method: {args.method}")

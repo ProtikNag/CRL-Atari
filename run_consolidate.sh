@@ -20,6 +20,7 @@
 #   2. One-Shot Joint           (single Taylor step over all tasks)
 #   3. Multi-Round Iterative    (sequential Taylor + multi-pass)
 #   4. Hybrid                   (iterative HTCL then KD refinement)
+#   5. WHC                      (closed-form Hessian-weighted consolidation)
 #
 # Steps:
 #   1. Consolidate experts (all four methods; skip if checkpoint exists)
@@ -170,6 +171,11 @@ if [ -z "${SKIP_CONSOLIDATE}" ]; then
     log_msg "--- Hybrid Consolidation (HTCL + KD) ---"
     run_step "01d_hybrid" \
         python scripts/consolidate.py --method hybrid ${COMMON_ARGS}
+
+    # 1e. Weighted Hessian Consolidation (WHC)
+    log_msg "--- Weighted Hessian Consolidation (WHC) ---"
+    run_step "01e_whc" \
+        python scripts/consolidate.py --method whc ${COMMON_ARGS}
 else
     log_msg "Skipping consolidation (--skip-consolidate)."
 fi
@@ -192,7 +198,7 @@ for EXPERT_CKPT in ${CKPT_DIR}/expert_*_best.pt; do
 done
 
 # Evaluate all consolidated methods
-for METHOD in distillation oneshot iterative hybrid; do
+for METHOD in distillation oneshot iterative hybrid whc; do
     CKPT="${CKPT_DIR}/consolidated_${METHOD}.pt"
     if [ -f "${CKPT}" ]; then
         log_msg "Evaluating consolidated: ${METHOD}"
