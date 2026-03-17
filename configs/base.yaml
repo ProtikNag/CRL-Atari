@@ -94,7 +94,7 @@ buffer_size_per_task: 100_000
 distillation:
   temperature: 0.01
   alpha: 0.5  # weight of distillation loss vs task loss
-  distill_epochs: 500
+  distill_epochs: 10000
   distill_lr: 5.0e-5
   distill_batch_size: 64
 
@@ -163,7 +163,7 @@ hybrid:
   num_rounds: 10       # K rounds
   recompute_fisher: false  # compute Fisher once, take K steps with cached F
   # Phase 2 (KD refinement) settings — must match distillation for fair comparison
-  kd_epochs: 500
+  kd_epochs: 10000
   kd_lr: 5.0e-5
   temperature: 0.01   # τ, teacher-only sharpening (Rusu et al. 2016)
   kd_batch_size: 64
