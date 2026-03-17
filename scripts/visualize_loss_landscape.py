@@ -78,6 +78,7 @@ METHOD_STYLE = {
     "EWC":          {"color": "#BE185D", "marker": "X", "size": 110},  # rose-700
     "Hybrid":       {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
     "Distillation": {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
+    "WHC":          {"color": "#92400E", "marker": "h", "size": 110},  # sienna
     # Epoch-sweep variants (only 10K displayed)
     "Dist. 10K ep":   {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
     "Hybrid 10K ep":  {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
@@ -359,6 +360,7 @@ def main() -> None:
         "One-Shot":     "consolidated_oneshot.pt",
         "Iterative":    "consolidated_iterative.pt",
         "EWC":          "consolidated_ewc.pt",
+        "WHC":          "consolidated_whc.pt",
     }
     consol_sds: Dict[str, Dict[str, torch.Tensor]] = {}
     for label, fname in CONSOLIDATED_SINGLE.items():
@@ -569,7 +571,7 @@ def main() -> None:
         ax.scatter(cx, cy, c=st["color"], s=st["size"],
                    edgecolors="white", linewidths=1.8, zorder=10,
                    marker=st["marker"], label=lab)
-        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC") or
+        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC") or
                        lab.endswith("10K ep"))
         if is_endpoint:
             txt = lab
@@ -673,7 +675,7 @@ def main() -> None:
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
         # Full label for endpoints, compact for low-budget epoch variants
-        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC") or
+        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC") or
                        lab.endswith("10K ep"))
         txt = lab if is_endpoint else lab.split()[-2] + " " + lab.split()[-1]
         ax3.text(

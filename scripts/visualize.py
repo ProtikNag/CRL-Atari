@@ -57,6 +57,7 @@ METHOD_COLORS: Dict[str, str] = {
     "Distillation": AC_SERIES[1],  # amber
     "Hybrid":       AC_SERIES[2],  # green
     "EWC":          AC_SERIES[6],  # rose
+    "WHC":          AC_SERIES[7],  # sienna
 }
 
 # Game-to-color mapping
@@ -67,7 +68,7 @@ GAME_COLORS: Dict[str, str] = {
 }
 
 # Canonical method ordering (Expert first, then consolidation methods)
-METHOD_ORDER = ["Expert", "One-Shot", "Iterative", "HTCL", "Distillation", "Hybrid", "EWC"]
+METHOD_ORDER = ["Expert", "One-Shot", "Iterative", "HTCL", "Distillation", "Hybrid", "EWC", "WHC"]
 
 # Episode sweep values
 EPOCH_SWEEP = [10, 100, 500, 5000, 10000]
@@ -161,6 +162,7 @@ def load_all_eval_data(
         "Distillation": f"eval_distillation_{tag}.json",
         "Hybrid":       f"eval_hybrid_{tag}.json",
         "EWC":          f"eval_ewc_{tag}.json",
+        "WHC":          f"eval_whc_{tag}.json",
     }
 
     data: Dict[str, Dict[str, Dict]] = {}
@@ -327,7 +329,7 @@ def plot_retention_heatmap(
     # Build row list: (label, game_data_dict)
     # Single-run methods first
     rows: List[Tuple[str, Dict[str, Dict]]] = []
-    single_methods = [m for m in ["One-Shot", "Iterative", "HTCL", "EWC"] if m in data]
+    single_methods = [m for m in ["One-Shot", "Iterative", "HTCL", "EWC", "WHC"] if m in data]
     for m in single_methods:
         rows.append((m, data[m]))
 

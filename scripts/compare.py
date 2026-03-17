@@ -523,6 +523,7 @@ def plot_kl_divergence(
         "One-Shot":      "consolidated_oneshot.pt",
         "Iterative":     "consolidated_iterative.pt",
         "Hybrid":        "consolidated_hybrid.pt",
+        "WHC":           "consolidated_whc.pt",
     }
 
     # ── Collect states and expert policies ──
@@ -701,6 +702,7 @@ def main():
         ("One-Shot",      "consolidated_oneshot.pt"),
         ("Iterative",     "consolidated_iterative.pt"),
         ("Hybrid",        "consolidated_hybrid.pt"),
+        ("WHC",           "consolidated_whc.pt"),
     ]
 
     for display_name, ckpt_fname in CONSOLIDATED_METHODS:
