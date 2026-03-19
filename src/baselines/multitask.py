@@ -238,13 +238,14 @@ class MultiTaskTrainer:
                     action = q.argmax(dim=1).item()
 
             next_state, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-            buf.push(state, action, reward, next_state, done)
+            # Store only terminated (not truncated) as done flag so that
+            # truncated transitions still bootstrap from Q(next_state).
+            buf.push(state, action, reward, next_state, terminated)
 
             episode_rewards[task_idx] += reward
             states[task_idx] = next_state
 
-            if done:
+            if terminated or truncated:
                 episode_counts[task_idx] += 1
                 recent_rewards[task_idx].append(episode_rewards[task_idx])
                 episode_rewards[task_idx] = 0.0
