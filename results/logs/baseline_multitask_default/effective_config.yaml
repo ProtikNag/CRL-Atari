@@ -1,0 +1,149 @@
+seed: 42
+task_sequence:
+- BreakoutNoFrameskip-v4
+- SpaceInvadersNoFrameskip-v4
+- PongNoFrameskip-v4
+model:
+  conv_channels:
+  - 32
+  - 64
+  - 64
+  conv_kernels:
+  - 8
+  - 4
+  - 3
+  conv_strides:
+  - 4
+  - 2
+  - 1
+  fc_hidden: 512
+  dueling: false
+  unified_action_dim: 6
+training:
+  total_timesteps: 3000000
+  learning_rate: 0.0001
+  batch_size: 32
+  gamma: 0.99
+  buffer_size: 500000
+  min_buffer_size: 50000
+  eps_start: 1.0
+  eps_end: 0.01
+  eps_decay_steps: 500000
+  target_update_freq: 2500
+  double_dqn: true
+  train_freq: 4
+  gradient_clip: 10.0
+  save_freq: 250000
+  eval_freq: 50000
+  eval_episodes: 10
+normalization:
+  enabled: false
+  method: popart
+  momentum: 0.01
+env:
+  frame_stack: 4
+  frame_skip: 4
+  screen_size: 84
+  noop_max: 30
+  episodic_life: true
+  clip_reward: true
+  grayscale: true
+consolidation: null
+buffer_size_per_task: 100000
+distillation:
+  temperature: 0.01
+  alpha: 0.5
+  distill_epochs: 10000
+  distill_lr: 5.0e-05
+  distill_batch_size: 64
+htcl:
+  filtered_buffer_size: 50000
+  fisher_samples: 5000
+  lambda_candidates:
+  - 0.1
+  - 1.0
+  - 10.0
+  - 100.0
+  - 1000.0
+  lambda_htcl: 100.0
+  lambda_auto: false
+  lambda_margin: 0.1
+  eta: 0.9
+  diagonal_fisher: true
+  num_passes: 3
+  joint_refinement: true
+oneshot:
+  lambda_htcl: 100.0
+  lambda_per_task:
+    Breakout: 100.0
+    SpaceInvaders: 100.0
+    Pong: 500.0
+  fisher_samples: 20000
+  filtered_buffer_size: 50000
+iterative:
+  lambda_htcl: 100.0
+  lambda_per_task:
+    Breakout: 100.0
+    SpaceInvaders: 100.0
+    Pong: 500.0
+  eta: 0.9
+  gamma: 0.9
+  num_rounds: 10
+  fisher_samples: 20000
+  filtered_buffer_size: 50000
+  recompute_fisher: false
+hybrid:
+  lambda_htcl: 100.0
+  lambda_per_task:
+    Breakout: 100.0
+    SpaceInvaders: 100.0
+    Pong: 500.0
+  eta: 0.9
+  gamma: 0.9
+  num_rounds: 10
+  recompute_fisher: false
+  kd_epochs: 10000
+  kd_lr: 5.0e-05
+  temperature: 0.01
+  kd_batch_size: 64
+ewc:
+  lambda: 5000.0
+  fisher_samples: 5000
+  buffer_size_per_task: 100000
+  gamma_ewc: 0.95
+multitask:
+  total_timesteps: 6000000
+whc:
+  lambda_reg: 0.001
+  fisher_samples: 20000
+evaluation:
+  episodes: 30
+  deterministic: true
+  render: false
+  record_video: false
+logging:
+  log_dir: results/logs
+  checkpoint_dir: results/checkpoints
+  figure_dir: results/figures
+  use_tensorboard: true
+  use_wandb: false
+  wandb_project: crl-atari
+  wandb_entity: null
+  log_interval: 1000
+debug:
+  enabled: false
+  total_timesteps: 10000
+  buffer_size: 2000
+  min_buffer_size: 500
+  eval_episodes: 2
+  eval_freq: 2000
+  save_freq: 5000
+  buffer_size_per_task: 2000
+  filtered_buffer_size: 500
+  fisher_samples: 100
+  distill_epochs: 5
+  lambda_candidates:
+  - 1.0
+  - 100.0
+  hybrid_kd_epochs: 3
+  multitask_total_timesteps: 10000
