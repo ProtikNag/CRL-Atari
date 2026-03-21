@@ -61,12 +61,14 @@ class MultiTaskTrainer:
         device: str,
         logger: Logger,
         tag: str = "default",
+        resume_checkpoint: Optional[str] = None,
     ):
         self.config = config
         self.union_actions = union_actions
         self.device = device
         self.logger = logger
         self.tag = tag
+        self.resume_checkpoint = resume_checkpoint
 
         mt_cfg = config.get("multitask", {})
         self.total_timesteps = mt_cfg.get(
@@ -140,6 +142,22 @@ class MultiTaskTrainer:
         target_net = copy.deepcopy(model)
         target_net.eval()
 
+        # Resume from checkpoint if provided
+        if self.resume_checkpoint and os.path.isfile(self.resume_checkpoint):
+            state_dict = torch.load(
+                self.resume_checkpoint, map_location=self.device
+            )
+            model.load_state_dict(state_dict)
+            target_net.load_state_dict(state_dict)
+            self.logger.info(
+                f"Resumed weights from: {self.resume_checkpoint}"
+            )
+        elif self.resume_checkpoint:
+            self.logger.warning(
+                f"Resume checkpoint not found: {self.resume_checkpoint} "
+                f"— starting from random init."
+            )
+
         optimizer = torch.optim.AdamW(
             model.parameters(), lr=train_cfg["learning_rate"]
         )
@@ -209,6 +227,9 @@ class MultiTaskTrainer:
             f"(min fill: {min_buffer})"
         )
         self.logger.info(f"Schedule: round-robin")
+
+        best_avg_reward = float("-inf")
+        best_ckpt_path = os.path.join(checkpoint_dir, "consolidated_multitask_best.pt")
 
         train_steps = 0
         start_time = time.time()
@@ -341,16 +362,26 @@ class MultiTaskTrainer:
                 self.logger.info(
                     f"[MTL] Evaluation at step {step}:"
                 )
+                eval_rewards_this_step = []
                 for i, env_id in enumerate(task_sequence):
                     eval_reward = self._evaluate_task(
                         model, env_id, valid_actions_list[i],
                         env_cfg, eval_episodes,
                     )
+                    eval_rewards_this_step.append(eval_reward)
                     if eval_reward > best_eval_rewards[i]:
                         best_eval_rewards[i] = eval_reward
                     self.logger.info(
                         f"  {game_names[i]}: {eval_reward:.2f} "
                         f"(best: {best_eval_rewards[i]:.2f})"
+                    )
+                avg_reward = float(np.mean(eval_rewards_this_step))
+                if avg_reward > best_avg_reward:
+                    best_avg_reward = avg_reward
+                    torch.save(model.state_dict(), best_ckpt_path)
+                    self.logger.info(
+                        f"  New best avg reward: {avg_reward:.2f} "
+                        f"— checkpoint saved"
                     )
 
             # ── Periodic checkpoint ───────────────────────────────────
@@ -377,10 +408,19 @@ class MultiTaskTrainer:
                 f"(best during training: {best_eval_rewards[i]:.2f})"
             )
 
-        # ── Save final model ──────────────────────────────────────────
+        # ── Save final model (use best-avg checkpoint if available) ──
         final_path = os.path.join(checkpoint_dir, "consolidated_multitask.pt")
-        torch.save(model.state_dict(), final_path)
-        self.logger.info(f"Final multi-task model saved to {final_path}")
+        if os.path.isfile(best_ckpt_path):
+            import shutil
+            shutil.copy(best_ckpt_path, final_path)
+            self.logger.info(
+                f"Best checkpoint (avg reward={best_avg_reward:.2f}) "
+                f"saved as final model: {final_path}"
+            )
+            os.remove(best_ckpt_path)
+        else:
+            torch.save(model.state_dict(), final_path)
+            self.logger.info(f"Final multi-task model saved to {final_path}")
 
         # Clean up step checkpoints
         import glob

@@ -49,6 +49,10 @@ def main():
         "--total-steps", type=int, default=None,
         help="Override total environment steps (default: 5M from config).",
     )
+    parser.add_argument(
+        "--resume", type=str, default=None,
+        help="Path to checkpoint to resume training from (e.g. consolidated_multitask.pt).",
+    )
     args = parser.parse_args()
 
     # ── Config ───────────────────────────────────────────────────────────
@@ -122,6 +126,7 @@ def main():
         device=device,
         logger=logger,
         tag=args.tag,
+        resume_checkpoint=args.resume,
     )
 
     model = trainer.train(task_sequence=config["task_sequence"])
