@@ -82,6 +82,7 @@ SKIP_EVAL=""
 SKIP_EWC=""
 SKIP_MULTITASK=""
 MTL_STEPS=""
+MTL_RESUME=""
 EXPERT_PATH=""
 
 while [ $# -gt 0 ]; do
@@ -130,6 +131,10 @@ while [ $# -gt 0 ]; do
             MTL_STEPS="--total-steps $2"
             shift 2
             ;;
+        --mtl-resume)
+            MTL_RESUME="--resume $2"
+            shift 2
+            ;;
         --expert)
             EXPERT_PATH="$2"
             shift 2
@@ -148,7 +153,8 @@ while [ $# -gt 0 ]; do
             echo "  --skip-eval           Skip evaluation steps after training"
             echo "  --skip-ewc            Skip EWC training (run multi-task only)"
             echo "  --skip-multitask      Skip multi-task training (run EWC only)"
-            echo "  --mtl-steps INT       Override multi-task total steps (default: 5M)"
+            echo "  --mtl-steps INT       Override multi-task total steps (default: 5M)
+  --mtl-resume PATH     Resume multi-task training from checkpoint"
             echo "  --expert PATH         Path to Task 1 expert checkpoint (for EWC)"
             echo "  -h, --help            Show this help"
             exit 0
@@ -279,7 +285,7 @@ if [ -z "${SKIP_MULTITASK}" ]; then
     log_msg " Step 3: Multi-Task Joint Training"
     log_msg "────────────────────────────────────────────────────────────"
 
-    MTL_ARGS="${COMMON_ARGS} ${MTL_STEPS}"
+    MTL_ARGS="${COMMON_ARGS} ${MTL_STEPS} ${MTL_RESUME}"
 
     log_msg "Running: python scripts/train_multitask.py ${MTL_ARGS}"
     python scripts/train_multitask.py ${MTL_ARGS} 2>&1 | tee -a "${LOG_FILE}"
