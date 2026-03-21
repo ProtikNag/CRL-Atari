@@ -196,6 +196,21 @@ whc:
   fisher_samples: 20000        # states sampled per task for diagonal Fisher
   # alpha_weights: null        # task weights (uniform by default)
 
+# --- Progress & Compress (Schwarz et al., ICML 2018) ---
+# Two-phase sequential continual learning:
+#   Progress: train Active Column (AC) with lateral KB connections per task.
+#   Compress: distill AC into KB with Online EWC protection.
+progress_compress:
+  progress_steps: 3_000_000    # env steps for progress phase (same as expert)
+  compress_epochs: 10000        # gradient steps for compress phase
+  compress_lr: 5.0e-5
+  compress_batch_size: 64
+  temperature: 0.01             # KD temperature (Rusu et al. 2016)
+  lambda_ewc: 5000.0            # EWC penalty strength in compress
+  gamma_ewc: 0.95               # Online EWC Fisher decay
+  fisher_samples: 5000          # states for Fisher estimation
+  buffer_size_per_task: 100_000 # states collected per task for compress
+
 # --- Evaluation ---
 evaluation:
   episodes: 30
@@ -233,3 +248,6 @@ debug:
   hybrid_kd_epochs: 3
   # Multi-task debug override
   multitask_total_timesteps: 10000
+  # Progress & Compress debug overrides
+  pc_progress_steps: 10000
+  pc_compress_epochs: 5

@@ -81,6 +81,7 @@ GAMMA_EWC=""
 SKIP_EVAL=""
 SKIP_EWC=""
 SKIP_MULTITASK=""
+SKIP_PC=""
 MTL_STEPS=""
 MTL_RESUME=""
 EXPERT_PATH=""
@@ -127,6 +128,10 @@ while [ $# -gt 0 ]; do
             SKIP_MULTITASK="1"
             shift
             ;;
+        --skip-pc)
+            SKIP_PC="1"
+            shift
+            ;;
         --mtl-steps)
             MTL_STEPS="--total-steps $2"
             shift 2
@@ -153,6 +158,7 @@ while [ $# -gt 0 ]; do
             echo "  --skip-eval           Skip evaluation steps after training"
             echo "  --skip-ewc            Skip EWC training (run multi-task only)"
             echo "  --skip-multitask      Skip multi-task training (run EWC only)"
+            echo "  --skip-pc             Skip Progress & Compress training"
             echo "  --mtl-steps INT       Override multi-task total steps (default: 5M)
   --mtl-resume PATH     Resume multi-task training from checkpoint"
             echo "  --expert PATH         Path to Task 1 expert checkpoint (for EWC)"
@@ -337,6 +343,68 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+# STEP 5–6: Progress & Compress Training + Evaluation
+# ══════════════════════════════════════════════════════════════════════════════
+
+if [ -z "${SKIP_PC}" ]; then
+
+    log_msg ""
+    log_msg "────────────────────────────────────────────────────────────"
+    log_msg " Step 5: Progress & Compress Sequential Training"
+    log_msg "────────────────────────────────────────────────────────────"
+
+    PC_ARGS="${COMMON_ARGS}"
+
+    log_msg "Running: python scripts/train_progress_compress.py ${PC_ARGS}"
+    python scripts/train_progress_compress.py ${PC_ARGS} 2>&1 | tee -a "${LOG_FILE}"
+    EXIT_CODE=${PIPESTATUS[0]:-$?}
+
+    if [ ${EXIT_CODE} -ne 0 ]; then
+        log_msg "FAILED: Progress & Compress training (exit code ${EXIT_CODE})"
+        exit ${EXIT_CODE}
+    fi
+
+    log_msg "Progress & Compress training complete."
+
+    # ── Evaluate P&C model ────────────────────────────────────────────────
+    if [ -z "${SKIP_EVAL}" ]; then
+        log_msg ""
+        log_msg "────────────────────────────────────────────────────────────"
+        log_msg " Step 6: Evaluate Progress & Compress Model on All Tasks"
+        log_msg "────────────────────────────────────────────────────────────"
+
+        MODEL_PATH="results/checkpoints/${TAG}/consolidated_pc.pt"
+        EVAL_OUTPUT="results/figures/eval_pc_${TAG}.json"
+
+        if [ ! -f "${MODEL_PATH}" ]; then
+            log_msg "ERROR: Model not found: ${MODEL_PATH}"
+            exit 1
+        fi
+
+        log_msg "Model:  ${MODEL_PATH}"
+        log_msg "Output: ${EVAL_OUTPUT}"
+
+        python scripts/evaluate.py \
+            --model-path "${MODEL_PATH}" \
+            --all-tasks \
+            --config ${CONFIG} ${DEBUG} ${DEVICE} \
+            --output "${EVAL_OUTPUT}" \
+            2>&1 | tee -a "${LOG_FILE}"
+
+        EXIT_CODE=${PIPESTATUS[0]:-$?}
+
+        if [ ${EXIT_CODE} -ne 0 ]; then
+            log_msg "WARNING: P&C evaluation failed (exit code ${EXIT_CODE})"
+        else
+            log_msg "Evaluation results saved to ${EVAL_OUTPUT}"
+        fi
+    fi
+
+else
+    log_msg "Skipping Progress & Compress (--skip-pc)"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # [FUTURE] Additional baselines
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -366,6 +434,13 @@ if [ -z "${SKIP_MULTITASK}" ]; then
     log_msg " Multi-task checkpoint: results/checkpoints/${TAG}/consolidated_multitask.pt"
     if [ -z "${SKIP_EVAL}" ]; then
         log_msg " Multi-task eval JSON:  results/figures/eval_multitask_${TAG}.json"
+    fi
+fi
+
+if [ -z "${SKIP_PC}" ]; then
+    log_msg " P&C checkpoint:        results/checkpoints/${TAG}/consolidated_pc.pt"
+    if [ -z "${SKIP_EVAL}" ]; then
+        log_msg " P&C eval JSON:         results/figures/eval_pc_${TAG}.json"
     fi
 fi
 
