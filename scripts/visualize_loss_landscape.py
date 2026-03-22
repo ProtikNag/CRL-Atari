@@ -759,8 +759,8 @@ def main() -> None:
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
         # Full label for endpoints, compact for low-budget epoch variants
-        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC") or
-                       lab.endswith("10K ep"))
+        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC",
+                                       "Multi-Task") or lab.endswith("10K ep"))
         txt = lab if is_endpoint else lab.split()[-2] + " " + lab.split()[-1]
         ax3.text(
             cx, cy, cz + z_offset * 1.12, txt,
