@@ -581,10 +581,14 @@ def main() -> None:
     # ================================================================
     # Figure 2: Two-panel combined 2D contour
     #   Left:  averaged expert landscape (expert TD targets)
-    #   Right: multitask landscape (multitask TD targets) + all models
+    #   Right: multitask landscape (multitask TD targets)
+    #   Both panels show the same model subset
     # ================================================================
     print("Generating two-panel combined 2D contour...")
     from adjustText import adjust_text
+
+    # Models to display on both panels (experts always included)
+    PANEL_METHODS = {"WHC", "Hybrid 10K ep", "Dist. 10K ep", "EWC", "Multi-Task"}
 
     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(22, 9))
 
@@ -594,7 +598,6 @@ def main() -> None:
         norm: colors.Normalize,
         title: str,
         cbar_label: str,
-        show_models: bool = False,
         ylabel: bool = True,
     ) -> None:
         """Shared drawing logic for both landscape panels."""
@@ -605,7 +608,7 @@ def main() -> None:
 
         texts = []
 
-        # Experts (stars) — always shown on both panels
+        # Experts (stars) — shown on both panels
         for gn, (ex, ey) in expert_coords.items():
             ax.scatter(ex, ey, c=GAME_COLORS[gn], s=220, edgecolors="white",
                        linewidths=2.5, zorder=10, marker="*",
@@ -617,36 +620,20 @@ def main() -> None:
                 zorder=15,
             ))
 
-        if show_models:
-            # Trajectory lines for epoch variants
-            for method_base, base_color in [("Dist.", "#0EA5E9"), ("Hybrid", "#EC4899")]:
-                traj_labels = [f"{method_base} {EP_LABELS[ep]}" for ep in LANDSCAPE_EPOCHS]
-                traj_pts = [(consol_coords[l][0], consol_coords[l][1])
-                            for l in traj_labels if l in consol_coords]
-                if len(traj_pts) >= 2:
-                    xs, ys = zip(*traj_pts)
-                    ax.plot(xs, ys, color=base_color, linewidth=1.5,
-                            linestyle="--", alpha=0.5, zorder=8)
-
-            for lab, (cx, cy) in consol_coords.items():
-                st = METHOD_STYLE[lab]
-                ax.scatter(cx, cy, c=st["color"], s=st["size"],
-                           edgecolors="white", linewidths=1.8, zorder=10,
-                           marker=st["marker"], label=lab)
-                is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC",
-                                       "Multi-Task") or lab.endswith("10K ep"))
-                txt = lab if is_endpoint else (lab.split()[-2] + " " + lab.split()[-1])
-                fs, fw = (10, "bold") if is_endpoint else (8, "500")
-                texts.append(ax.text(
-                    cx, cy, txt, fontsize=fs, fontweight=fw,
-                    color=TEXT if is_endpoint else TEXT_DIM,
-                    bbox=dict(
-                        boxstyle="round,pad=0.25" if is_endpoint else "round,pad=0.2",
-                        fc="white", ec=BORDER,
-                        alpha=0.92 if is_endpoint else 0.85,
-                    ),
-                    zorder=15,
-                ))
+        # Consolidated methods — filtered to PANEL_METHODS
+        for lab, (cx, cy) in consol_coords.items():
+            if lab not in PANEL_METHODS:
+                continue
+            st = METHOD_STYLE[lab]
+            ax.scatter(cx, cy, c=st["color"], s=st["size"],
+                       edgecolors="white", linewidths=1.8, zorder=10,
+                       marker=st["marker"], label=lab)
+            texts.append(ax.text(
+                cx, cy, lab, fontsize=10, fontweight="bold", color=TEXT,
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
+                          alpha=0.92),
+                zorder=15,
+            ))
 
         adjust_text(
             texts, ax=ax,
@@ -664,9 +651,8 @@ def main() -> None:
             ax.set_yticklabels([])
         ax.set_title(title, fontsize=15, fontweight="bold", pad=12)
         ax.tick_params(length=0)
-        if show_models:
-            ax.legend(fontsize=9, framealpha=0.92, loc="upper right",
-                      borderpad=0.6, handletextpad=0.5, ncol=2)
+        ax.legend(fontsize=9, framealpha=0.92, loc="upper right",
+                  borderpad=0.6, handletextpad=0.5, ncol=2)
 
         cbar = fig.colorbar(cf, ax=ax, fraction=0.03, pad=0.03)
         cbar.set_label(cbar_label, fontsize=10, color=TEXT_DIM)
@@ -679,16 +665,14 @@ def main() -> None:
         title=r"$\frac{1}{3}(L_\mathrm{Breakout} + L_\mathrm{SI} + L_\mathrm{Pong})$"
               "  \u00b7  Expert Targets",
         cbar_label="log(1 + avg expert loss)",
-        show_models=False,
         ylabel=True,
     )
 
-    # Right panel — multitask landscape + all model positions
+    # Right panel — multitask landscape
     _draw_panel(
         ax_right, log_mt_averaged, norm_power_mt,
         title="Joint Training Landscape  \u00b7  All Models",
         cbar_label="log(1 + avg multitask loss)",
-        show_models=True,
         ylabel=False,
     )
 
