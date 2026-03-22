@@ -68,7 +68,7 @@ GAME_COLORS: Dict[str, str] = {
 }
 
 # Canonical method ordering (Expert first, then consolidation methods)
-METHOD_ORDER = ["Expert", "One-Shot", "Iterative", "HTCL", "Distillation", "Hybrid", "EWC", "WHC"]
+METHOD_ORDER = ["Expert", "One-Shot", "Iterative", "HTCL", "Distillation", "Hybrid", "EWC", "WHC", "Multi-Task"]
 
 # Episode sweep values
 EPOCH_SWEEP = [10, 100, 500, 5000, 10000]
@@ -163,6 +163,7 @@ def load_all_eval_data(
         "Hybrid":       f"eval_hybrid_{tag}.json",
         "EWC":          f"eval_ewc_{tag}.json",
         "WHC":          f"eval_whc_{tag}.json",
+        "Multi-Task":   f"eval_multitask_{tag}.json",
     }
 
     data: Dict[str, Dict[str, Dict]] = {}
@@ -329,24 +330,19 @@ def plot_retention_heatmap(
     # Build row list: (label, game_data_dict)
     # Single-run methods first
     rows: List[Tuple[str, Dict[str, Dict]]] = []
-    single_methods = [m for m in ["One-Shot", "Iterative", "HTCL", "EWC", "WHC"] if m in data]
+    single_methods = [m for m in ["One-Shot", "Iterative", "EWC", "WHC", "Multi-Task"] if m in data]
     for m in single_methods:
         rows.append((m, data[m]))
 
-    # Epoch sweep methods: one row per epoch budget
+    # Epoch sweep methods: only the 10K ep checkpoint for the heatmap
     group_boundaries: List[int] = []  # row indices where a new group starts
-    ep_labels = {10: "10 ep", 100: "100 ep", 500: "500 ep", 5000: "5K ep", 10000: "10K ep"}
     for method in ["Distillation", "Hybrid"]:
-        if method not in sweep or not sweep[method]:
-            # Fallback: use default data with "(10K ep)" label
-            if method in data:
-                group_boundaries.append(len(rows))
-                rows.append((f"{method} (10K ep)", data[method]))
-            continue
-        group_boundaries.append(len(rows))
-        for ep in EPOCH_SWEEP:
-            if ep in sweep[method]:
-                rows.append((f"{method} ({ep_labels[ep]})", sweep[method][ep]))
+        if method in sweep and 10000 in sweep[method]:
+            group_boundaries.append(len(rows))
+            rows.append((f"{method} (10K ep)", sweep[method][10000]))
+        elif method in data:
+            group_boundaries.append(len(rows))
+            rows.append((f"{method} (10K ep)", data[method]))
 
     n_m = len(rows)
     n_g = len(games)
