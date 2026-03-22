@@ -79,6 +79,7 @@ METHOD_STYLE = {
     "Hybrid":       {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
     "Distillation": {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
     "WHC":          {"color": "#92400E", "marker": "h", "size": 110},  # sienna
+    "Multi-Task":   {"color": "#059669", "marker": "o", "size": 130},  # emerald
     # Epoch-sweep variants (only 10K displayed)
     "Dist. 10K ep":   {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
     "Hybrid 10K ep":  {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
@@ -361,6 +362,7 @@ def main() -> None:
         "Iterative":    "consolidated_iterative.pt",
         "EWC":          "consolidated_ewc.pt",
         "WHC":          "consolidated_whc.pt",
+        "Multi-Task":   "consolidated_multitask.pt",
     }
     consol_sds: Dict[str, Dict[str, torch.Tensor]] = {}
     for label, fname in CONSOLIDATED_SINGLE.items():
@@ -473,6 +475,51 @@ def main() -> None:
         clip=True,
     )
 
+    # -- Compute multitask landscape (targets from joint model) --------
+    # For each game, precompute TD targets using the multitask model
+    # (rather than the individual expert). This defines the landscape
+    # that the multitask model actually optimized.
+    mt_loss_grid: np.ndarray = np.zeros_like(A)
+    mt_sd = consol_sds.get("Multi-Task")
+    if mt_sd is not None:
+        print("\nPrecomputing multitask targets...")
+        mt_targets: Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+        mt_model_tmp = build_model(config, device)
+        for gn in game_names:
+            states, actions, targets = precompute_expert_targets(
+                mt_model_tmp, mt_sd, game_buffers[gn],
+                device, args.eval_samples, args.gamma,
+            )
+            mt_targets[gn] = (states, actions, targets)
+            print(f"  {gn}: {states.shape[0]} samples (multitask targets)")
+
+        print(f"\nEvaluating {total} grid points x {len(game_names)} games (multitask landscape)...")
+        mt_loss_grids: Dict[str, np.ndarray] = {g: np.zeros_like(A) for g in game_names}
+        for i in range(args.grid_size):
+            if (i + 1) % 5 == 0 or i == 0:
+                print(f"  Row {i + 1}/{args.grid_size}...")
+            for j in range(args.grid_size):
+                flat = center + A[i, j] * d1 + B[i, j] * d2
+                grid_sd = {k: v.to(device)
+                           for k, v in unflatten_params(flat, ref_sd).items()}
+                for gn in game_names:
+                    s, a, t = mt_targets[gn]
+                    mt_loss_grids[gn][i, j] = evaluate_loss(
+                        eval_model, grid_sd, s, a, t,
+                    )
+        mt_averaged = sum(mt_loss_grids[g] for g in game_names) / len(game_names)
+        log_mt_averaged = np.log1p(mt_averaged)
+        norm_power_mt = colors.PowerNorm(
+            gamma=0.65,
+            vmin=log_mt_averaged.min(),
+            vmax=log_mt_averaged.max(),
+            clip=True,
+        )
+    else:
+        print("\nMulti-Task checkpoint not found — skipping second panel.")
+        log_mt_averaged = log_averaged
+        norm_power_mt = norm_power
+
     # ================================================================
     # Figure 1: Per-game contour plots (1x3) -- experts only
     # ================================================================
@@ -532,86 +579,107 @@ def main() -> None:
     plt.close(fig)
 
     # ================================================================
-    # Figure 2: Combined 2D contour -- all models
+    # Figure 2: Two-panel combined 2D contour
+    #   Left:  averaged expert landscape (expert TD targets)
+    #   Right: multitask landscape (multitask TD targets)
+    #   Both panels show the same model subset
     # ================================================================
-    print("Generating combined 2D contour...")
-    fig, ax = plt.subplots(figsize=(11, 9))
-
-    cf = ax.contourf(A, B, log_averaged, levels=50, cmap=COMBINED_CMAP,
-                     alpha=0.95, norm=norm_power)
-    ax.contour(A, B, log_averaged, levels=25, colors=["#374151"],
-               linewidths=0.25, alpha=0.25)
-
-    # Experts (stars)
-    texts_2d = []  # collect for adjustText
-    for gn, (ex, ey) in expert_coords.items():
-        ax.scatter(ex, ey, c=GAME_COLORS[gn], s=220, edgecolors="white",
-                   linewidths=2.5, zorder=10, marker="*",
-                   label=f"{gn} Expert")
-        texts_2d.append(ax.text(
-            ex, ey, gn, fontsize=12, fontweight="bold", color=TEXT,
-            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
-                      alpha=0.92),
-            zorder=15,
-        ))
-
-    # Consolidated methods (distinct markers)
-    # Draw trajectory lines connecting epoch variants first
-    for method_base, base_color in [("Dist.", "#0EA5E9"), ("Hybrid", "#EC4899")]:
-        traj_labels = [f"{method_base} {EP_LABELS[ep]}" for ep in LANDSCAPE_EPOCHS]
-        traj_pts = [(consol_coords[l][0], consol_coords[l][1])
-                    for l in traj_labels if l in consol_coords]
-        if len(traj_pts) >= 2:
-            xs, ys = zip(*traj_pts)
-            ax.plot(xs, ys, color=base_color, linewidth=1.5,
-                    linestyle="--", alpha=0.5, zorder=8)
-
-    for lab, (cx, cy) in consol_coords.items():
-        st = METHOD_STYLE[lab]
-        ax.scatter(cx, cy, c=st["color"], s=st["size"],
-                   edgecolors="white", linewidths=1.8, zorder=10,
-                   marker=st["marker"], label=lab)
-        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC") or
-                       lab.endswith("10K ep"))
-        if is_endpoint:
-            txt = lab
-            fs, fw = 10, "bold"
-        else:
-            txt = lab.split()[-2] + " " + lab.split()[-1]
-            fs, fw = 8, "500"
-        texts_2d.append(ax.text(
-            cx, cy, txt, fontsize=fs, fontweight=fw,
-            color=TEXT if is_endpoint else TEXT_DIM,
-            bbox=dict(boxstyle="round,pad=0.25" if is_endpoint else "round,pad=0.2",
-                      fc="white", ec=BORDER,
-                      alpha=0.92 if is_endpoint else 0.85),
-            zorder=15,
-        ))
-
-    # Use adjustText to automatically space labels
+    print("Generating two-panel combined 2D contour...")
     from adjustText import adjust_text
-    adjust_text(
-        texts_2d, ax=ax,
-        arrowprops=dict(arrowstyle="-", color=BORDER, lw=0.8, alpha=0.6),
-        expand=(1.8, 2.0),
-        force_text=(1.0, 1.0),
-        force_points=(0.8, 0.8),
-        ensure_inside_axes=True,
+
+    # Models to display on both panels (experts always included)
+    PANEL_METHODS = {"WHC", "Hybrid 10K ep", "Dist. 10K ep", "EWC", "Multi-Task"}
+
+    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(22, 9))
+
+    def _draw_panel(
+        ax: plt.Axes,
+        Z_log: np.ndarray,
+        norm: colors.Normalize,
+        title: str,
+        cbar_label: str,
+        ylabel: bool = True,
+    ) -> None:
+        """Shared drawing logic for both landscape panels."""
+        cf = ax.contourf(A, B, Z_log, levels=50, cmap=COMBINED_CMAP,
+                         alpha=0.95, norm=norm)
+        ax.contour(A, B, Z_log, levels=25, colors=["#374151"],
+                   linewidths=0.25, alpha=0.25)
+
+        texts = []
+
+        # Experts (stars) — shown on both panels
+        for gn, (ex, ey) in expert_coords.items():
+            ax.scatter(ex, ey, c=GAME_COLORS[gn], s=220, edgecolors="white",
+                       linewidths=2.5, zorder=10, marker="*",
+                       label=f"{gn} Expert")
+            texts.append(ax.text(
+                ex, ey, gn, fontsize=12, fontweight="bold", color=TEXT,
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
+                          alpha=0.92),
+                zorder=15,
+            ))
+
+        # Consolidated methods — filtered to PANEL_METHODS
+        for lab, (cx, cy) in consol_coords.items():
+            if lab not in PANEL_METHODS:
+                continue
+            st = METHOD_STYLE[lab]
+            ax.scatter(cx, cy, c=st["color"], s=st["size"],
+                       edgecolors="white", linewidths=1.8, zorder=10,
+                       marker=st["marker"], label=lab)
+            texts.append(ax.text(
+                cx, cy, lab, fontsize=10, fontweight="bold", color=TEXT,
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
+                          alpha=0.92),
+                zorder=15,
+            ))
+
+        adjust_text(
+            texts, ax=ax,
+            arrowprops=dict(arrowstyle="-", color=BORDER, lw=0.8, alpha=0.6),
+            expand=(1.8, 2.0),
+            force_text=(1.0, 1.0),
+            force_points=(0.8, 0.8),
+            ensure_inside_axes=True,
+        )
+
+        ax.set_xlabel("PC 1", fontsize=13)
+        if ylabel:
+            ax.set_ylabel("PC 2", fontsize=13)
+        else:
+            ax.set_yticklabels([])
+        ax.set_title(title, fontsize=15, fontweight="bold", pad=12)
+        ax.tick_params(length=0)
+        ax.legend(fontsize=9, framealpha=0.92, loc="upper right",
+                  borderpad=0.6, handletextpad=0.5, ncol=2)
+
+        cbar = fig.colorbar(cf, ax=ax, fraction=0.03, pad=0.03)
+        cbar.set_label(cbar_label, fontsize=10, color=TEXT_DIM)
+        cbar.ax.yaxis.set_tick_params(color=TEXT_DIM)
+        plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_DIM, fontsize=8)
+
+    # Left panel — averaged expert landscape
+    _draw_panel(
+        ax_left, log_averaged, norm_power,
+        title=r"$\frac{1}{3}(L_\mathrm{Breakout} + L_\mathrm{SI} + L_\mathrm{Pong})$"
+              "  \u00b7  Expert Targets",
+        cbar_label="log(1 + avg expert loss)",
+        ylabel=True,
     )
 
-    ax.set_xlabel("PC 1", fontsize=13)
-    ax.set_ylabel("PC 2", fontsize=13)
-    ax.set_title("Combined Loss Landscape  \u00b7  All Models",
-                 fontsize=18, fontweight="bold", pad=14)
-    ax.legend(fontsize=9.5, framealpha=0.92, loc="upper right",
-              borderpad=0.7, handletextpad=0.6, ncol=2)
-    ax.tick_params(length=0)
+    # Right panel — multitask landscape
+    _draw_panel(
+        ax_right, log_mt_averaged, norm_power_mt,
+        title="Joint Training Landscape  \u00b7  All Models",
+        cbar_label="log(1 + avg multitask loss)",
+        ylabel=False,
+    )
 
-    cbar = fig.colorbar(cf, ax=ax, fraction=0.03, pad=0.03)
-    cbar.set_label("log(1 + avg loss)", fontsize=11, color=TEXT_DIM)
-    cbar.ax.yaxis.set_tick_params(color=TEXT_DIM)
-    plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_DIM, fontsize=9)
-
+    fig.suptitle(
+        "Loss Landscape Comparison: Expert-Averaged vs. Joint Training",
+        fontsize=18, fontweight="bold", y=1.01,
+    )
     fig.tight_layout()
     _save(fig, fig_dir, f"loss_landscape_combined_{args.tag}")
     plt.close(fig)
@@ -675,8 +743,8 @@ def main() -> None:
                     edgecolors="white", linewidths=1.5, zorder=10,
                     marker=st["marker"], label=lab)
         # Full label for endpoints, compact for low-budget epoch variants
-        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC") or
-                       lab.endswith("10K ep"))
+        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC",
+                                       "Multi-Task") or lab.endswith("10K ep"))
         txt = lab if is_endpoint else lab.split()[-2] + " " + lab.split()[-1]
         ax3.text(
             cx, cy, cz + z_offset * 1.12, txt,
