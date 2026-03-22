@@ -587,8 +587,9 @@ def main() -> None:
     print("Generating two-panel combined 2D contour...")
     from adjustText import adjust_text
 
-    # Models to display on both panels (experts always included)
-    PANEL_METHODS = {"WHC", "Hybrid 10K ep", "Dist. 10K ep", "EWC", "Multi-Task"}
+    # Models to display on both panels (experts always included).
+    # Draw order matters when points overlap — WHC is last so it renders on top.
+    PANEL_METHODS_ORDER = ["EWC", "Multi-Task", "Dist. 10K ep", "Hybrid 10K ep", "WHC"]
 
     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(22, 9))
 
@@ -620,19 +621,21 @@ def main() -> None:
                 zorder=15,
             ))
 
-        # Consolidated methods — filtered to PANEL_METHODS
-        for lab, (cx, cy) in consol_coords.items():
-            if lab not in PANEL_METHODS:
+        # Consolidated methods — drawn in PANEL_METHODS_ORDER so WHC is on top
+        for rank, lab in enumerate(PANEL_METHODS_ORDER):
+            if lab not in consol_coords:
                 continue
+            cx, cy = consol_coords[lab]
             st = METHOD_STYLE[lab]
+            zorder = 10 + rank  # WHC (last) gets highest zorder
             ax.scatter(cx, cy, c=st["color"], s=st["size"],
-                       edgecolors="white", linewidths=1.8, zorder=10,
+                       edgecolors="white", linewidths=1.8, zorder=zorder,
                        marker=st["marker"], label=lab)
             texts.append(ax.text(
                 cx, cy, lab, fontsize=10, fontweight="bold", color=TEXT,
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=BORDER,
                           alpha=0.92),
-                zorder=15,
+                zorder=20 + rank,  # text zorder mirrors scatter zorder
             ))
 
         adjust_text(
@@ -716,42 +719,22 @@ def main() -> None:
             path_effects=[path_effects.withStroke(linewidth=2.5, foreground="white", alpha=0.9)],
         )
 
-    # Consolidated on surface
-    # Draw trajectory lines for epoch variants
-    for method_base, base_color in [("Dist.", "#0EA5E9"), ("Hybrid", "#EC4899")]:
-        traj_labels = [f"{method_base} {EP_LABELS[ep]}" for ep in LANDSCAPE_EPOCHS]
-        traj_pts = []
-        for l in traj_labels:
-            if l not in consol_coords:
-                continue
-            cx, cy = consol_coords[l]
-            ix = np.argmin(np.abs(alphas - cx))
-            iy = np.argmin(np.abs(betas - cy))
-            cz = log_averaged[iy, ix]
-            traj_pts.append((cx, cy, cz + z_offset))
-        if len(traj_pts) >= 2:
-            txs, tys, tzs = zip(*traj_pts)
-            ax3.plot(txs, tys, tzs, color=base_color, linewidth=1.5,
-                     linestyle="--", alpha=0.5, zorder=8)
-
-    for lab, (cx, cy) in consol_coords.items():
+    # Consolidated on surface — same order and filter as 2D panels, WHC last
+    for rank, lab in enumerate(PANEL_METHODS_ORDER):
+        if lab not in consol_coords:
+            continue
+        cx, cy = consol_coords[lab]
         st = METHOD_STYLE[lab]
         ix = np.argmin(np.abs(alphas - cx))
         iy = np.argmin(np.abs(betas - cy))
         cz = log_averaged[iy, ix]
         ax3.scatter([cx], [cy], [cz + z_offset], c=st["color"], s=st["size"],
-                    edgecolors="white", linewidths=1.5, zorder=10,
+                    edgecolors="white", linewidths=1.5, zorder=10 + rank,
                     marker=st["marker"], label=lab)
-        # Full label for endpoints, compact for low-budget epoch variants
-        is_endpoint = (lab in ("One-Shot", "Iterative", "EWC", "WHC",
-                                       "Multi-Task") or lab.endswith("10K ep"))
-        txt = lab if is_endpoint else lab.split()[-2] + " " + lab.split()[-1]
         ax3.text(
-            cx, cy, cz + z_offset * 1.12, txt,
-            fontsize=9 if is_endpoint else 7.5,
-            fontweight="bold" if is_endpoint else "500",
-            color=TEXT,
-            ha="center", va="bottom", zorder=20, clip_on=False,
+            cx, cy, cz + z_offset * 1.12, lab,
+            fontsize=9, fontweight="bold", color=TEXT,
+            ha="center", va="bottom", zorder=20 + rank, clip_on=False,
             path_effects=[path_effects.withStroke(linewidth=2.0, foreground="white", alpha=0.9)],
         )
 
