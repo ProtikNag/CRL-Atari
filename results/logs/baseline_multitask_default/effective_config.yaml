@@ -112,7 +112,7 @@ ewc:
   buffer_size_per_task: 100000
   gamma_ewc: 0.95
 multitask:
-  total_timesteps: 6000000
+  total_timesteps: 3000000
 whc:
   lambda_reg: 0.001
   fisher_samples: 20000
