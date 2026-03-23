@@ -79,7 +79,8 @@ METHOD_STYLE = {
     "Hybrid":       {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
     "Distillation": {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
     "WHC":          {"color": "#92400E", "marker": "h", "size": 110},  # sienna
-    "Multi-Task":   {"color": "#059669", "marker": "o", "size": 130},  # emerald
+    "Multi-Task":          {"color": "#059669", "marker": "o", "size": 130},  # emerald
+    "Progress & Compress": {"color": "#0891B2", "marker": "v", "size": 110},  # teal
     # Epoch-sweep variants (only 10K displayed)
     "Dist. 10K ep":   {"color": "#0EA5E9", "marker": "^", "size": 110},  # sky-500
     "Hybrid 10K ep":  {"color": "#EC4899", "marker": "P", "size": 120},  # pink-500
@@ -362,7 +363,8 @@ def main() -> None:
         "Iterative":    "consolidated_iterative.pt",
         "EWC":          "consolidated_ewc.pt",
         "WHC":          "consolidated_whc.pt",
-        "Multi-Task":   "consolidated_multitask.pt",
+        "Multi-Task":          "consolidated_multitask.pt",
+        "Progress & Compress": "consolidated_pc.pt",
     }
     consol_sds: Dict[str, Dict[str, torch.Tensor]] = {}
     for label, fname in CONSOLIDATED_SINGLE.items():
@@ -589,7 +591,7 @@ def main() -> None:
 
     # Models to display on both panels (experts always included).
     # Draw order matters when points overlap — WHC is last so it renders on top.
-    PANEL_METHODS_ORDER = ["EWC", "Multi-Task", "Dist. 10K ep", "Hybrid 10K ep", "WHC"]
+    PANEL_METHODS_ORDER = ["EWC", "Multi-Task", "Progress & Compress", "Dist. 10K ep", "Hybrid 10K ep", "WHC"]
 
     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(22, 9))
 
