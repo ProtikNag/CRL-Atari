@@ -459,10 +459,6 @@ class ProgressCompressTrainer:
             p.requires_grad_(False)
         ac.eval()
 
-        # Action mask for distillation: mask invalid actions to -inf
-        mask = torch.full((n_actions,), float("-inf"), device=self.device)
-        mask[valid_actions] = 0.0
-
         optimizer = torch.optim.AdamW(kb.parameters(), lr=self.compress_lr)
 
         kb.train()
@@ -473,22 +469,23 @@ class ProgressCompressTrainer:
             idx = torch.randint(0, n_states, (self.compress_batch_size,))
             s_batch = states[idx].float().to(self.device) / 255.0
 
-            # AC logits (teacher, frozen)
+            # AC logits (teacher, frozen) — slice to valid actions only.
+            # Computing KL over all 6 actions with -inf masking causes NaN on
+            # GPU: softmax(-inf)=0 and log_softmax(-inf)=-inf, so the F.kl_div
+            # kernel computes 0 * (-inf - -inf) = 0 * nan = nan (IEEE 754).
             with torch.no_grad():
                 ac_logits = ac(s_batch)
-                ac_masked = ac_logits + mask.unsqueeze(0)
                 teacher_probs = torch.softmax(
-                    ac_masked / self.temperature, dim=1
+                    ac_logits[:, valid_actions] / self.temperature, dim=1
                 )
 
             # KB logits (student, trainable)
             kb_logits = kb(s_batch)
-            kb_masked = kb_logits + mask.unsqueeze(0)
             student_log_probs = torch.log_softmax(
-                kb_masked / self.temperature, dim=1
+                kb_logits[:, valid_actions] / self.temperature, dim=1
             )
 
-            # KL divergence: KL(teacher || student)
+            # KL divergence: KL(teacher || student), valid actions only
             kl_loss = F.kl_div(
                 student_log_probs,
                 teacher_probs,
