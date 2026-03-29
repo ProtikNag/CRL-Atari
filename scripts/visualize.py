@@ -59,23 +59,6 @@ METHOD_COLORS: Dict[str, str] = {
     "EWC":                 AC_SERIES[6],  # rose
     "WHC":                 AC_SERIES[7],  # sienna
     "Progress & Compress": "#0891B2",      # teal (distinct from Iterative)
-    "Trac":                "#475569",      # slate — external paper baseline
-    "NT Baseline":         "#854D0E",      # brown — negative transfer paper baseline
-}
-
-# Results from external papers, injected directly into the data dict at runtime.
-# Format: {method_name: {game: mean_reward}}
-PAPER_BASELINES: Dict[str, Dict[str, float]] = {
-    "Trac": {
-        "Breakout":      20.3,
-        "SpaceInvaders": 55.9,
-        "Pong":           7.1,
-    },
-    "NT Baseline": {
-        "Breakout":       7.5,
-        "SpaceInvaders": 109.2,
-        "Pong":           8.8,
-    },
 }
 
 # Game-to-color mapping
@@ -85,8 +68,8 @@ GAME_COLORS: Dict[str, str] = {
     "Pong":           AC_SERIES[2],  # green
 }
 
-# Canonical method ordering (Expert first, then consolidation methods, then paper baselines)
-METHOD_ORDER = ["Expert", "One-Shot", "Iterative", "HTCL", "Distillation", "Hybrid", "EWC", "WHC", "Multi-Task", "Progress & Compress", "Trac", "NT Baseline"]
+# Canonical method ordering (Expert first, then consolidation methods)
+METHOD_ORDER = ["Expert", "One-Shot", "Iterative", "HTCL", "Distillation", "Hybrid", "EWC", "WHC", "Multi-Task", "Progress & Compress"]
 
 # Episode sweep values
 EPOCH_SWEEP = [10, 100, 500, 5000, 10000]
@@ -349,7 +332,7 @@ def plot_retention_heatmap(
     # Build row list: (label, game_data_dict)
     # Single-run methods first
     rows: List[Tuple[str, Dict[str, Dict]]] = []
-    single_methods = [m for m in ["One-Shot", "Iterative", "EWC", "WHC", "Multi-Task", "Progress & Compress", "Trac", "NT Baseline"] if m in data]
+    single_methods = [m for m in ["One-Shot", "Iterative", "EWC", "WHC", "Multi-Task", "Progress & Compress"] if m in data]
     for m in single_methods:
         rows.append((m, data[m]))
 
@@ -654,10 +637,6 @@ def main() -> None:
     data = load_all_eval_data(figures_dir, args.tag)
     sweep = load_epoch_sweep(figures_dir, args.tag)
     histories = load_training_histories(checkpoint_dir, args.tag)
-
-    # Inject hardcoded paper baselines
-    for method, game_vals in PAPER_BASELINES.items():
-        data[method] = {g: {"mean_reward": v} for g, v in game_vals.items()}
 
     methods_found = [m for m in METHOD_ORDER if m in data]
     print(f"Methods: {methods_found}")
