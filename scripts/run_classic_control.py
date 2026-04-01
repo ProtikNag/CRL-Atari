@@ -1131,9 +1131,21 @@ def generate_reward_distributions(
 # Main
 # ═══════════════════════════════════════════════════════════════════════
 
-def run_single_seed(config: Dict[str, Any], seed: int, device: str,
-                    base_tag: str = "default", skip_experts: bool = False) -> Dict[str, List[Dict]]:
+def run_single_seed(
+    config: Dict[str, Any],
+    seed: int,
+    device: str,
+    base_tag: str = "default",
+    skip_experts: bool = False,
+    shared_expert_results: Optional[List[Dict[str, Any]]] = None,
+    shared_filtered_states: Optional[List[torch.Tensor]] = None,
+) -> Dict[str, List[Dict]]:
     """Run the full experiment pipeline for a single seed.
+
+    When *shared_expert_results* and *shared_filtered_states* are provided,
+    expert training (Step 1) and state filtering (Step 2) are skipped and
+    the shared data is reused.  This avoids redundant expert training
+    across seeds since well-trained experts are seed-independent.
 
     Returns {method_name: [per-game eval dicts]}.
     """
@@ -1175,15 +1187,23 @@ def run_single_seed(config: Dict[str, Any], seed: int, device: str,
                   for env_id in task_sequence]
 
     # ══════════════════════════════════════════════════════════════════
-    # STEP 1: Train Experts
+    # STEP 1 & 2: Experts and filtered states
     # ══════════════════════════════════════════════════════════════════
-    logger.info("\n" + "=" * 60)
-    logger.info("STEP 1: Training Experts")
-    logger.info("=" * 60)
+    # Experts are seed-independent: a well-trained expert produces the
+    # same quality regardless of training seed.  When shared_expert_results
+    # is provided (multi-seed mode), we skip training and reuse them.
 
-    expert_results = []
-    if skip_experts:
-        logger.info("Loading experts from checkpoints...")
+    if shared_expert_results is not None and shared_filtered_states is not None:
+        logger.info("\n" + "=" * 60)
+        logger.info("Using shared experts (trained once, reused across seeds)")
+        logger.info("=" * 60)
+        expert_results = shared_expert_results
+        filtered_states_list = shared_filtered_states
+    elif skip_experts:
+        logger.info("\n" + "=" * 60)
+        logger.info("STEP 1: Loading experts from checkpoints")
+        logger.info("=" * 60)
+        expert_results = []
         for env_id in task_sequence:
             game_name = env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
             ckpt_path = os.path.join(checkpoint_dir, tag, f"expert_{game_name}_best.pt")
@@ -1191,7 +1211,6 @@ def run_single_seed(config: Dict[str, Any], seed: int, device: str,
             model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
 
             valid_actions = get_valid_actions_classic(env_id, union_actions)
-            # Collect replay buffer
             replay_buffer = VectorReplayBuffer(
                 config["training"]["buffer_size"], max_state_dim, device)
             env = make_classic_control_env(env_id, union_actions, max_state_dim,
@@ -1206,19 +1225,28 @@ def run_single_seed(config: Dict[str, Any], seed: int, device: str,
                 else:
                     state = next_state
             env.close()
-
-            eval_r = evaluate_model(model, env_id, union_actions, max_state_dim,
-                                    valid_actions, config, device, eval_episodes)
             expert_results.append({
                 "policy_state_dict": copy.deepcopy(model.state_dict()),
                 "valid_actions": valid_actions,
-                "game_name": game_name,
-                "env_id": env_id,
+                "game_name": game_name, "env_id": env_id,
                 "replay_buffer": replay_buffer,
-                "best_reward": eval_r,
             })
-            logger.info(f"  Loaded {game_name}: eval={eval_r:.2f}")
+            logger.info(f"  Loaded {game_name}")
+
+        filtered_states_list = []
+        htcl_cfg = config.get("htcl", {})
+        for result in expert_results:
+            model = build_model(config, device)
+            model.load_state_dict(result["policy_state_dict"])
+            filt = result["replay_buffer"].filter_by_confidence(
+                model, result["valid_actions"],
+                htcl_cfg.get("filtered_buffer_size", 5000))
+            filtered_states_list.append(filt)
     else:
+        logger.info("\n" + "=" * 60)
+        logger.info("STEP 1: Training Experts")
+        logger.info("=" * 60)
+        expert_results = []
         for env_id in task_sequence:
             result = train_expert(
                 config, env_id, union_actions, max_state_dim,
@@ -1226,7 +1254,21 @@ def run_single_seed(config: Dict[str, Any], seed: int, device: str,
             )
             expert_results.append(result)
 
-    # Expert evaluation
+        logger.info("\n" + "=" * 60)
+        logger.info("STEP 2: Collecting filtered states")
+        logger.info("=" * 60)
+        filtered_states_list = []
+        htcl_cfg = config.get("htcl", {})
+        filtered_buffer_size = htcl_cfg.get("filtered_buffer_size", 5000)
+        for result in expert_results:
+            model = build_model(config, device)
+            model.load_state_dict(result["policy_state_dict"])
+            filt = result["replay_buffer"].filter_by_confidence(
+                model, result["valid_actions"], filtered_buffer_size)
+            filtered_states_list.append(filt)
+            logger.info(f"  {result['game_name']}: {filt.shape[0]} states")
+
+    # Expert evaluation (uses current seed for env stochasticity)
     expert_rewards = {}
     all_eval_data = {}
     expert_evals = []
@@ -1242,31 +1284,6 @@ def run_single_seed(config: Dict[str, Any], seed: int, device: str,
         logger.info(f"  Expert {game_name}: {evals[0]['mean_reward']:.2f}")
 
     all_eval_data["Expert"] = expert_evals
-    # Save expert eval JSONs
-    for ev in expert_evals:
-        path = os.path.join(figure_dir, f"eval_expert_{ev['game_name']}_{tag}.json")
-        with open(path, "w") as f:
-            json.dump([ev], f, indent=2, default=lambda x: x if not isinstance(x, np.floating) else float(x))
-
-    # ══════════════════════════════════════════════════════════════════
-    # STEP 2: Collect filtered states
-    # ══════════════════════════════════════════════════════════════════
-    logger.info("\n" + "=" * 60)
-    logger.info("STEP 2: Collecting filtered states")
-    logger.info("=" * 60)
-
-    filtered_states_list = []
-    htcl_cfg = config.get("htcl", {})
-    filtered_buffer_size = htcl_cfg.get("filtered_buffer_size", 5000)
-
-    for result in expert_results:
-        game_name = result["game_name"]
-        model = build_model(config, device)
-        model.load_state_dict(result["policy_state_dict"])
-        filt = result["replay_buffer"].filter_by_confidence(
-            model, result["valid_actions"], filtered_buffer_size)
-        filtered_states_list.append(filt)
-        logger.info(f"  {game_name}: {filt.shape[0]} high-confidence states")
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 3: Run Consolidation Methods
@@ -1658,7 +1675,84 @@ def main() -> None:
     print(f"Multi-seed experiment: seeds={seeds}")
     print(f"{'='*60}")
 
-    all_seed_results = {}  # seed -> {method: [eval dicts]}
+    # ── Train experts ONCE (seed-independent) ────────────────────────
+    # Expert quality depends on architecture + training budget, not on
+    # random seed.  We train 3 experts with seed=seeds[0] and reuse
+    # them for every consolidation/evaluation seed.
+    expert_seed = seeds[0]
+    print(f"\nTraining shared experts (seed={expert_seed}, trained once)...")
+    expert_config = copy.deepcopy(config)
+    expert_config["seed"] = expert_seed
+    set_seed(expert_seed)
+
+    task_sequence = config["task_sequence"]
+    union_actions = compute_union_action_space_classic(task_sequence)
+    max_state_dim = compute_max_state_dim(task_sequence)
+    expert_config["model"]["unified_action_dim"] = len(union_actions)
+    expert_config["max_state_dim"] = max_state_dim
+
+    expert_tag = f"{args.tag}_experts"
+    checkpoint_dir = config["logging"]["checkpoint_dir"]
+
+    expert_logger = setup_logger(
+        log_dir=config["logging"]["log_dir"],
+        experiment_name=f"classic_control_{expert_tag}",
+        use_tensorboard=config["logging"].get("use_tensorboard", False),
+    )
+
+    shared_expert_results = []
+    if args.skip_experts:
+        expert_logger.info("Loading pre-trained experts from checkpoints...")
+        for env_id in task_sequence:
+            gn = env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
+            ckpt_path = os.path.join(checkpoint_dir, expert_tag, f"expert_{gn}_best.pt")
+            model = build_model(expert_config, device)
+            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+            valid_actions = get_valid_actions_classic(env_id, union_actions)
+
+            replay_buffer = VectorReplayBuffer(
+                expert_config["training"]["buffer_size"], max_state_dim, device)
+            env = make_classic_control_env(env_id, union_actions, max_state_dim, seed=expert_seed)
+            state, _ = env.reset()
+            for _ in range(config.get("buffer_size_per_task", 50000)):
+                action = np.random.choice(valid_actions)
+                ns, r, t1, t2, _ = env.step(action)
+                replay_buffer.push(state, action, r, ns, t1 or t2)
+                state = ns if not (t1 or t2) else env.reset()[0]
+            env.close()
+
+            shared_expert_results.append({
+                "policy_state_dict": copy.deepcopy(model.state_dict()),
+                "valid_actions": valid_actions,
+                "game_name": gn, "env_id": env_id,
+                "replay_buffer": replay_buffer,
+            })
+            expert_logger.info(f"  Loaded {gn}")
+    else:
+        for env_id in task_sequence:
+            result = train_expert(
+                expert_config, env_id, union_actions, max_state_dim,
+                device, expert_logger, expert_tag,
+            )
+            shared_expert_results.append(result)
+
+    # Collect filtered states once
+    shared_filtered_states = []
+    htcl_cfg = config.get("htcl", {})
+    filtered_buffer_size = htcl_cfg.get("filtered_buffer_size", 50000)
+    for result in shared_expert_results:
+        model = build_model(expert_config, device)
+        model.load_state_dict(result["policy_state_dict"])
+        filt = result["replay_buffer"].filter_by_confidence(
+            model, result["valid_actions"], filtered_buffer_size)
+        shared_filtered_states.append(filt)
+        print(f"  {result['game_name']}: {filt.shape[0]} filtered states")
+
+    expert_logger.close()
+    print("Shared experts ready.\n")
+
+    # ── Run each seed (consolidation + sequential methods only) ──────
+    all_seed_results = {}
 
     for seed in seeds:
         print(f"\n{'='*60}")
@@ -1666,7 +1760,9 @@ def main() -> None:
         print(f"{'='*60}")
         seed_data = run_single_seed(
             config, seed, device,
-            base_tag=args.tag, skip_experts=args.skip_experts,
+            base_tag=args.tag, skip_experts=False,
+            shared_expert_results=shared_expert_results,
+            shared_filtered_states=shared_filtered_states,
         )
         all_seed_results[seed] = seed_data
 
