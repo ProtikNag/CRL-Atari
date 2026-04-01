@@ -74,6 +74,9 @@ class WHCConsolidator:
         self.alpha_weights: Optional[List[float]] = whc_cfg.get(
             "alpha_weights", None,
         )
+        # "inverse_fisher" computes alpha_i ∝ 1/||H_i|| so no single
+        # task's curvature dominates the consolidation.
+        self.alpha_mode: Optional[str] = whc_cfg.get("alpha_mode", None)
 
     def _log(self, msg: str) -> None:
         if self.logger:
@@ -164,17 +167,6 @@ class WHCConsolidator:
         lam = lambda_override if lambda_override is not None else self.lambda_reg
         num_tasks = len(expert_results)
 
-        # Task weights alpha_i (uniform by default, must sum to 1)
-        if self.alpha_weights is not None and len(self.alpha_weights) == num_tasks:
-            alphas = self.alpha_weights
-        else:
-            alphas = [1.0 / num_tasks] * num_tasks
-
-        self._log(
-            f"Starting Weighted Hessian Consolidation "
-            f"(lambda={lam:.4f}, alphas={alphas}, N={num_tasks})..."
-        )
-
         # Identify head layer names for action masking
         ref_sd = global_model.state_dict()
         n_actions = global_model.unified_action_dim
@@ -192,11 +184,86 @@ class WHCConsolidator:
         }
         head_names = head_weight_names | head_bias_names
 
-        # Initialize accumulators: H_agg and b_agg  (Eq. 7, 8)
         trainable_names = [
             name for name, param in global_model.named_parameters()
             if param.requires_grad
         ]
+
+        # ── Pass 1: Compute all per-expert Fishers ──────────────────────
+        self._log(f"  Computing per-expert Fisher matrices...")
+        all_fishers: List[Dict[str, torch.Tensor]] = []
+        fisher_total_norms: List[float] = []
+
+        for task_idx, (result, filt_states) in enumerate(
+            zip(expert_results, filtered_states_list)
+        ):
+            game_name = result["game_name"]
+            valid_actions = result["valid_actions"]
+
+            self._log(
+                f"  [{task_idx+1}/{num_tasks}] Computing Fisher for {game_name} "
+                f"at expert optimum..."
+            )
+
+            expert_model = copy.deepcopy(global_model).to(self.device)
+            expert_model.load_state_dict(result["policy_state_dict"])
+
+            fisher_i = self._compute_diagonal_fisher(
+                expert_model, valid_actions, filt_states,
+            )
+
+            # Apply action masking to Fisher
+            unused = (
+                sorted(set(range(n_actions)) - set(valid_actions))
+                if len(valid_actions) < n_actions
+                else []
+            )
+            if unused:
+                for name in trainable_names:
+                    if name in head_weight_names:
+                        fisher_i[name][unused, :] = 0.0
+                    elif name in head_bias_names:
+                        fisher_i[name][unused] = 0.0
+
+            total_norm = sum(
+                fisher_i[n].norm().item() ** 2 for n in trainable_names
+            ) ** 0.5
+            fisher_total_norms.append(total_norm)
+
+            fisher_norms_sample = {
+                n: fisher_i[n].norm().item()
+                for n in list(fisher_i.keys())[:3]
+            }
+            self._log(
+                f"    Fisher norms (sample): {fisher_norms_sample} | "
+                f"total ||H_i||={total_norm:.4f}"
+            )
+
+            all_fishers.append(fisher_i)
+            del expert_model
+
+        # ── Determine task weights alpha_i ──────────────────────────────
+        if self.alpha_weights is not None and len(self.alpha_weights) == num_tasks:
+            alphas = list(self.alpha_weights)
+        elif self.alpha_mode == "inverse_fisher":
+            # alpha_i proportional to 1/||H_i|| so tasks with smaller
+            # Fisher (less curvature) get more weight, preventing any
+            # single high-curvature task from dominating.
+            inv_norms = [1.0 / (fn + 1e-12) for fn in fisher_total_norms]
+            total_inv = sum(inv_norms)
+            alphas = [inv / total_inv for inv in inv_norms]
+            alpha_dict = {r["game_name"]: round(a, 4) for r, a in zip(expert_results, alphas)}
+            self._log(f"  Inverse-Fisher alpha weights: {alpha_dict}")
+        else:
+            alphas = [1.0 / num_tasks] * num_tasks
+
+        alpha_strs = [str(round(a, 4)) for a in alphas]
+        self._log(
+            f"Starting Weighted Hessian Consolidation "
+            f"(lambda={lam:.4f}, alphas={alpha_strs}, N={num_tasks})..."
+        )
+
+        # ── Pass 2: Accumulate H_agg and b_agg with final alphas ───────
         h_agg: Dict[str, torch.Tensor] = {
             name: torch.zeros_like(ref_sd[name], device=self.device)
             for name in trainable_names
@@ -206,59 +273,28 @@ class WHCConsolidator:
             for name in trainable_names
         }
 
-        # Compute per-expert Fisher at expert's OWN optimum and accumulate
-        for task_idx, (result, filt_states) in enumerate(
-            zip(expert_results, filtered_states_list)
+        for task_idx, (result, fisher_i) in enumerate(
+            zip(expert_results, all_fishers)
         ):
-            game_name = result["game_name"]
             valid_actions = result["valid_actions"]
             alpha_i = alphas[task_idx]
-
-            self._log(
-                f"  [{task_idx+1}/{num_tasks}] Computing Fisher for {game_name} "
-                f"at expert optimum (alpha={alpha_i:.3f})..."
-            )
-
-            # Build a fresh model at expert's own optimum w_i^*
-            expert_model = copy.deepcopy(global_model).to(self.device)
-            expert_model.load_state_dict(result["policy_state_dict"])
-
-            # Compute Fisher H_i at w_i^* (the expert's own optimum)
-            fisher_i = self._compute_diagonal_fisher(
-                expert_model, valid_actions, filt_states,
-            )
-
-            # Fisher statistics for logging
-            fisher_norms = {
-                n: fisher_i[n].norm().item()
-                for n in list(fisher_i.keys())[:3]
-            }
-            self._log(f"    Fisher norms (sample): {fisher_norms}")
-
-            # Expert parameters w_i^*
             expert_sd = result["policy_state_dict"]
 
-            # Determine unused actions for masking
             unused = (
                 sorted(set(range(n_actions)) - set(valid_actions))
                 if len(valid_actions) < n_actions
                 else []
             )
 
-            # Accumulate H_agg and b_agg
             for name in trainable_names:
                 h_i = fisher_i[name]
                 w_i = expert_sd[name].to(self.device).float()
 
-                # Action masking: zero out Fisher and weight contribution
-                # for actions this expert was never trained on
                 if unused and name in head_names:
                     if name in head_weight_names:
-                        h_i[unused, :] = 0.0
                         w_i_masked = w_i.clone()
                         w_i_masked[unused, :] = 0.0
-                    else:  # bias
-                        h_i[unused] = 0.0
+                    else:
                         w_i_masked = w_i.clone()
                         w_i_masked[unused] = 0.0
                 else:
@@ -266,8 +302,6 @@ class WHCConsolidator:
 
                 h_agg[name] += alpha_i * h_i
                 b_agg[name] += alpha_i * h_i * w_i_masked
-
-            del expert_model
 
         # Solve: w_hat = (H_agg + lambda I)^{-1} (b_agg + lambda * w_bar)
         # The lambda * w_bar term regularizes toward the ensemble mean

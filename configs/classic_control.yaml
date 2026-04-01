@@ -11,6 +11,8 @@
 
 # --- Seed & Reproducibility ---
 seed: 42
+# Multiple seeds for confidence intervals (run script iterates over these)
+seeds: [42, 123, 456, 789, 1024]
 
 # --- Dataset Identifier ---
 dataset: classic_control
@@ -35,28 +37,31 @@ model:
   dueling: false
 
 # --- Training (Expert) ---
+# Budget: 200K steps per task. This is the per-task budget that all methods
+# share for fairness. Sequential methods get 200K steps per subsequent task.
+# Multi-Task gets 200K * num_tasks total steps.
 training:
-  total_timesteps: 50_000
+  total_timesteps: 200_000
   learning_rate: 1.0e-3
   batch_size: 64
   gamma: 0.99
   # Replay buffer
-  buffer_size: 10_000
-  min_buffer_size: 500
+  buffer_size: 50_000
+  min_buffer_size: 1_000
   # Exploration
   eps_start: 1.0
   eps_end: 0.01
-  eps_decay_steps: 10_000
+  eps_decay_steps: 30_000
   # Target network
-  target_update_freq: 500
+  target_update_freq: 1_000
   # Double DQN
   double_dqn: true
   # Training frequency
   train_freq: 1
   gradient_clip: 10.0
   # Checkpointing
-  save_freq: 25_000
-  eval_freq: 5_000
+  save_freq: 50_000
+  eval_freq: 10_000
   eval_episodes: 20
 
 # --- Q-Value Normalization ---
@@ -73,20 +78,20 @@ env: {}
 consolidation: {}
 
 # --- Consolidation Replay Buffer ---
-buffer_size_per_task: 5_000
+buffer_size_per_task: 50_000
 
 # --- Knowledge Distillation ---
 distillation:
   temperature: 1.0
   alpha: 0.5
-  distill_epochs: 500
+  distill_epochs: 2_000
   distill_lr: 1.0e-3
   distill_batch_size: 128
 
 # --- HTCL ---
 htcl:
-  filtered_buffer_size: 5_000
-  fisher_samples: 2_000
+  filtered_buffer_size: 50_000
+  fisher_samples: 50_000
   lambda_candidates: [0.1, 1.0, 10.0, 100.0]
   lambda_htcl: 10.0
   lambda_auto: false
@@ -103,8 +108,8 @@ oneshot:
     CartPole: 10.0
     Acrobot: 10.0
     LunarLander: 10.0
-  fisher_samples: 5_000
-  filtered_buffer_size: 5_000
+  fisher_samples: 50_000
+  filtered_buffer_size: 50_000
 
 # --- Multi-Round Iterative Consolidation ---
 iterative:
@@ -116,8 +121,8 @@ iterative:
   eta: 0.9
   gamma: 0.9
   num_rounds: 5
-  fisher_samples: 5_000
-  filtered_buffer_size: 5_000
+  fisher_samples: 50_000
+  filtered_buffer_size: 50_000
   recompute_fisher: false
 
 # --- Hybrid Consolidation ---
@@ -131,7 +136,7 @@ hybrid:
   gamma: 0.9
   num_rounds: 5
   recompute_fisher: false
-  kd_epochs: 250
+  kd_epochs: 1_000
   kd_lr: 5.0e-4
   temperature: 1.0
   kd_batch_size: 128
@@ -139,44 +144,51 @@ hybrid:
 # --- EWC Baseline ---
 ewc:
   lambda: 1_000.0
-  fisher_samples: 2_000
-  buffer_size_per_task: 5_000
+  fisher_samples: 50_000
+  buffer_size_per_task: 50_000
   gamma_ewc: 0.95
 
 # --- WHC (Weighted Hessian Consolidation) ---
 whc:
-  lambda_reg: 0.01
-  fisher_samples: 5_000
+  lambda_reg: 0.1
+  fisher_samples: 50_000
+  # "inverse_fisher" computes alpha_i proportional to 1/||H_i||
+  # so that no single task's curvature dominates the consolidation.
+  # Set to null for uniform weights.
+  alpha_mode: "inverse_fisher"
 
 # --- Progress & Compress ---
+# progress_steps matches expert training budget for fairness.
 progress_compress:
-  progress_steps: 50_000
-  compress_epochs: 500
+  progress_steps: 200_000
+  compress_epochs: 2_000
   compress_lr: 1.0e-3
   compress_batch_size: 128
   temperature: 1.0
   lambda_ewc: 1_000.0
   gamma_ewc: 0.95
-  fisher_samples: 2_000
-  buffer_size_per_task: 5_000
+  fisher_samples: 50_000
+  buffer_size_per_task: 50_000
 
-# --- TRAC (Trainable Recurrent Attention for Continual learning) ---
+# --- TRAC ---
 trac:
   beta_grid: [0.9, 0.99, 0.999, 0.9999]
   epsilon: 1.0e-8
 
-# --- C-CHAIN (Churn-Controlled Heuristic for Atari INterplay) ---
+# --- C-CHAIN ---
 cchain:
   churn_coeff: 0.1
   ref_batch_size: 64
 
 # --- Multi-Task Joint Training Baseline ---
+# total_timesteps = training.total_timesteps * num_tasks for fairness
+# (each task gets the same effective budget as expert training).
 multitask:
-  total_timesteps: 100_000
+  total_timesteps: 600_000
 
 # --- Evaluation ---
 evaluation:
-  episodes: 30
+  episodes: 500
   deterministic: true
   render: false
   record_video: false
@@ -190,7 +202,7 @@ logging:
   use_wandb: false
   wandb_project: "crl-classic-control"
   wandb_entity: null
-  log_interval: 500
+  log_interval: 1_000
 
 # --- Debug Mode ---
 debug:

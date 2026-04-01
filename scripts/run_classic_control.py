@@ -1131,25 +1131,16 @@ def generate_reward_distributions(
 # Main
 # ═══════════════════════════════════════════════════════════════════════
 
-def main():
-    parser = argparse.ArgumentParser(description="CRL Classic Control Runner")
-    parser.add_argument("--config", type=str, default="configs/classic_control.yaml")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    parser.add_argument("--tag", type=str, default="default")
-    parser.add_argument("--skip-experts", action="store_true",
-                        help="Skip expert training (load from checkpoints)")
-    args = parser.parse_args()
+def run_single_seed(config: Dict[str, Any], seed: int, device: str,
+                    base_tag: str = "default", skip_experts: bool = False) -> Dict[str, List[Dict]]:
+    """Run the full experiment pipeline for a single seed.
 
-    # Load config
-    config = load_config(args.config)
-    if args.debug:
-        config["debug"]["enabled"] = True
-    config = apply_debug_overrides(config)
-
-    # Setup
-    device = get_device()
-    set_seed(config["seed"])
-    tag = args.tag
+    Returns {method_name: [per-game eval dicts]}.
+    """
+    config = copy.deepcopy(config)
+    config["seed"] = seed
+    set_seed(seed)
+    tag = f"{base_tag}_seed{seed}"
 
     task_sequence = config["task_sequence"]
     union_actions = compute_union_action_space_classic(task_sequence)
@@ -1191,7 +1182,7 @@ def main():
     logger.info("=" * 60)
 
     expert_results = []
-    if args.skip_experts:
+    if skip_experts:
         logger.info("Loading experts from checkpoints...")
         for env_id in task_sequence:
             game_name = env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
@@ -1405,13 +1396,12 @@ def main():
         logger.info(f"  Multi-Task {ev['game_name']}: {ev['mean_reward']:.2f}")
 
     # ══════════════════════════════════════════════════════════════════
-    # STEP 6: Save eval JSONs and generate figures
+    # STEP 6: Save per-seed eval JSONs
     # ══════════════════════════════════════════════════════════════════
     logger.info("\n" + "=" * 60)
-    logger.info("STEP 6: Generating Figures")
+    logger.info(f"STEP 6: Saving eval data (seed={seed})")
     logger.info("=" * 60)
 
-    # Save all eval data
     for method, evals in all_eval_data.items():
         if method == "Expert":
             continue
@@ -1438,23 +1428,340 @@ def main():
         with open(path, "w") as f:
             json.dump(serializable, f, indent=2)
 
-    # Generate heatmap
-    generate_heatmap(all_eval_data, expert_rewards, figure_dir, game_names)
-    generate_reward_distributions(all_eval_data, figure_dir, game_names)
+    logger.info(f"Seed {seed} complete. Returning eval data.")
+    logger.close()
 
-    # ══════════════════════════════════════════════════════════════════
-    # Summary
-    # ══════════════════════════════════════════════════════════════════
-    logger.info("\n" + "=" * 60)
-    logger.info("SUMMARY")
-    logger.info("=" * 60)
+    return all_eval_data
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Multi-seed aggregation heatmap
+# ═══════════════════════════════════════════════════════════════════════
+
+# Random baselines for normalized score: (method - random) / (expert - random) * 100
+RANDOM_BASELINES = {
+    "CartPole": 20.0,
+    "Acrobot": -497.0,
+    "LunarLander": -183.0,
+}
+
+
+def generate_multi_seed_heatmap(
+    mean_data: Dict[str, Dict[str, float]],
+    std_data: Dict[str, Dict[str, float]],
+    expert_mean: Dict[str, float],
+    expert_std: Dict[str, float],
+    figure_dir: str,
+    game_names: List[str],
+) -> None:
+    """Generate retention heatmap with mean +/- std across seeds.
+
+    Uses normalized score: (method - random) / (expert - random) * 100.
+    Includes expert row, avg retention column, sorted by avg retention.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
+    from matplotlib.colors import TwoSlopeNorm
+
+    mpl.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Inter', 'Helvetica', 'Arial'],
+        'axes.spines.top': False, 'axes.spines.right': False,
+        'axes.grid': True, 'grid.color': '#E9ECEF', 'grid.linewidth': 0.6,
+        'axes.edgecolor': '#495057', 'axes.labelcolor': '#212529',
+        'xtick.color': '#6C757D', 'ytick.color': '#6C757D',
+        'figure.dpi': 150, 'savefig.dpi': 300, 'savefig.bbox': 'tight',
+    })
+
+    method_order = ["Expert", "Multi-Task", "WHC", "Distillation", "Hybrid",
+                    "EWC", "Progress & Compress", "TRAC", "C-CHAIN"]
+
+    methods = [m for m in method_order if m in mean_data or m == "Expert"]
+    n_g = len(game_names)
+
+    if len(methods) == 0:
+        print("  No methods to plot in multi-seed heatmap.")
+        return
+
+    # Build normalized score matrix and avg column
+    # Columns: game_names + "Avg Retention"
+    col_labels = game_names + ["Avg Retention"]
+    n_cols = len(col_labels)
+
+    norm_mean = {}  # method -> list of normalized means (per game + avg)
+    norm_std = {}   # method -> list of normalized stds (per game + avg)
+
+    for method in methods:
+        row_means = []
+        row_stds = []
+        for game in game_names:
+            random_b = RANDOM_BASELINES.get(game, 0.0)
+            if method == "Expert":
+                m_reward = expert_mean.get(game, 0.0)
+                s_reward = expert_std.get(game, 0.0)
+            else:
+                m_reward = mean_data.get(method, {}).get(game, 0.0)
+                s_reward = std_data.get(method, {}).get(game, 0.0)
+
+            expert_r = expert_mean.get(game, 1.0)
+            denom = expert_r - random_b
+            if abs(denom) < 1e-6:
+                n_score = 100.0 if abs(m_reward - expert_r) < 1e-6 else 0.0
+                n_std_score = 0.0
+            else:
+                n_score = (m_reward - random_b) / denom * 100.0
+                n_std_score = s_reward / abs(denom) * 100.0
+            row_means.append(n_score)
+            row_stds.append(n_std_score)
+
+        # Avg retention
+        avg_mean = float(np.mean(row_means))
+        avg_std = float(np.mean(row_stds))
+        row_means.append(avg_mean)
+        row_stds.append(avg_std)
+
+        norm_mean[method] = row_means
+        norm_std[method] = row_stds
+
+    # Sort methods by avg retention (last column), but keep Expert at top
+    non_expert = [m for m in methods if m != "Expert"]
+    non_expert.sort(key=lambda m: norm_mean[m][-1], reverse=True)
+    sorted_methods = ["Expert"] + non_expert if "Expert" in methods else non_expert
+
+    n_m = len(sorted_methods)
+    ret_matrix = np.zeros((n_m, n_cols))
+    for i, method in enumerate(sorted_methods):
+        for j in range(n_cols):
+            ret_matrix[i, j] = norm_mean[method][j]
+
+    fig, ax = plt.subplots(figsize=(max(8, 2.2 * n_cols), 0.6 * n_m + 2.5))
+
+    vmin = min(0, np.nanmin(ret_matrix))
+    vmax = max(100, np.nanmax(ret_matrix) * 1.05)
+    vcenter = 50
+    if vmin >= vcenter:
+        vcenter = (vmin + vmax) / 2
+    norm_obj = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    cmap = mpl.colormaps.get_cmap("RdYlGn")
+
+    im = ax.imshow(ret_matrix, cmap=cmap, norm=norm_obj, aspect="auto")
+
+    # Annotate cells with "mean +/- std" in black text
+    for i, method in enumerate(sorted_methods):
+        for j in range(n_cols):
+            m_val = norm_mean[method][j]
+            s_val = norm_std[method][j]
+            cell_text = f"{m_val:.1f}\n\u00b1{s_val:.1f}"
+            ax.text(j, i, cell_text,
+                    ha="center", va="center", fontsize=9, fontweight="600",
+                    color="#212529")
+
+    ax.set_xticks(range(n_cols))
+    ax.set_xticklabels(col_labels, fontsize=11)
+    ax.set_yticks(range(n_m))
+    ax.set_yticklabels(sorted_methods, fontsize=10)
+
+    # White grid lines between cells
+    for e in range(n_cols + 1):
+        ax.axvline(e - 0.5, color="white", linewidth=2.5)
+    for e in range(n_m + 1):
+        ax.axhline(e - 0.5, color="white", linewidth=2.5)
+
+    # Separator line between Expert row and methods
+    if "Expert" in sorted_methods:
+        ax.axhline(0.5, color="#495057", linewidth=2.0)
+
+    # Separator line before Avg Retention column
+    ax.axvline(n_g - 0.5, color="#495057", linewidth=2.0)
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+    cbar.set_label("Normalized Score (%)", fontsize=11)
+
+    ax.set_title("Normalized Retention (multi-seed mean \u00b1 std)",
+                 fontsize=14, fontweight="600", color="#212529", pad=14,
+                 fontfamily="serif")
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    for fmt in ("png", "svg"):
+        out_dir = os.path.join(figure_dir, fmt)
+        os.makedirs(out_dir, exist_ok=True)
+        fig.savefig(os.path.join(out_dir, f"02_retention_heatmap.{fmt}"),
+                    dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"  Multi-seed heatmap saved to {figure_dir}/{{png,svg}}/")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Main entry point
+# ═══════════════════════════════════════════════════════════════════════
+
+def main() -> None:
+    """Parse arguments and orchestrate multi-seed experiments."""
+    parser = argparse.ArgumentParser(description="CRL Classic Control experiments")
+    parser.add_argument("--config", type=str,
+                        default="configs/classic_control.yaml",
+                        help="Path to YAML config file")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug mode (short runs)")
+    parser.add_argument("--tag", type=str, default="default",
+                        help="Experiment tag for logging/checkpoints")
+    parser.add_argument("--skip-experts", action="store_true",
+                        help="Load pre-trained experts from checkpoints")
+    parser.add_argument("--single-seed", type=int, default=None,
+                        help="Run only this seed (skip multi-seed aggregation)")
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+    if args.debug:
+        config["debug"]["enabled"] = True
+    config = apply_debug_overrides(config)
+    device = get_device()
+
+    seeds = config.get("seeds", [42, 123, 456, 789, 1024])
+
+    task_sequence = config["task_sequence"]
+    game_names = [env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
+                  for env_id in task_sequence]
+    figure_dir = config["logging"]["figure_dir"]
+
+    if args.single_seed is not None:
+        # Single-seed mode: run one seed and generate figures directly
+        seed = args.single_seed
+        print(f"\n{'='*60}")
+        print(f"Running single seed: {seed}")
+        print(f"{'='*60}")
+        all_eval_data = run_single_seed(
+            config, seed, device,
+            base_tag=args.tag, skip_experts=args.skip_experts,
+        )
+
+        # Build expert_rewards from the returned data
+        expert_rewards = {}
+        if "Expert" in all_eval_data:
+            for ev in all_eval_data["Expert"]:
+                expert_rewards[ev["game_name"]] = ev["mean_reward"]
+
+        # Generate single-seed heatmap and distributions
+        generate_heatmap(all_eval_data, expert_rewards, figure_dir, game_names)
+        generate_reward_distributions(all_eval_data, figure_dir, game_names)
+
+        # Print summary
+        _print_single_seed_summary(all_eval_data, game_names, seed)
+        return
+
+    # ── Multi-seed mode ──────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"Multi-seed experiment: seeds={seeds}")
+    print(f"{'='*60}")
+
+    all_seed_results = {}  # seed -> {method: [eval dicts]}
+
+    for seed in seeds:
+        print(f"\n{'='*60}")
+        print(f"  Seed {seed}")
+        print(f"{'='*60}")
+        seed_data = run_single_seed(
+            config, seed, device,
+            base_tag=args.tag, skip_experts=args.skip_experts,
+        )
+        all_seed_results[seed] = seed_data
+
+    # ── Aggregate across seeds ───────────────────────────────────────
+    # Collect per-method, per-game mean_reward across seeds
+    all_methods = set()
+    for seed_data in all_seed_results.values():
+        all_methods.update(seed_data.keys())
+
+    # mean_data[method][game] = mean across seeds
+    # std_data[method][game]  = std across seeds
+    mean_data: Dict[str, Dict[str, float]] = {}
+    std_data: Dict[str, Dict[str, float]] = {}
+    expert_mean: Dict[str, float] = {}
+    expert_std: Dict[str, float] = {}
+
+    for method in all_methods:
+        if method == "Expert":
+            # Aggregate expert rewards separately
+            for game in game_names:
+                rewards_across_seeds = []
+                for seed_data in all_seed_results.values():
+                    if "Expert" in seed_data:
+                        eval_dict = {e["game_name"]: e for e in seed_data["Expert"]}
+                        if game in eval_dict:
+                            rewards_across_seeds.append(eval_dict[game]["mean_reward"])
+                if rewards_across_seeds:
+                    expert_mean[game] = float(np.mean(rewards_across_seeds))
+                    expert_std[game] = float(np.std(rewards_across_seeds))
+            continue
+
+        mean_data[method] = {}
+        std_data[method] = {}
+        for game in game_names:
+            rewards_across_seeds = []
+            for seed_data in all_seed_results.values():
+                if method in seed_data:
+                    eval_dict = {e["game_name"]: e for e in seed_data[method]}
+                    if game in eval_dict:
+                        rewards_across_seeds.append(eval_dict[game]["mean_reward"])
+            if rewards_across_seeds:
+                mean_data[method][game] = float(np.mean(rewards_across_seeds))
+                std_data[method][game] = float(np.std(rewards_across_seeds))
+            else:
+                mean_data[method][game] = 0.0
+                std_data[method][game] = 0.0
+
+    # ── Generate multi-seed heatmap ──────────────────────────────────
+    os.makedirs(os.path.join(figure_dir, "png"), exist_ok=True)
+    os.makedirs(os.path.join(figure_dir, "svg"), exist_ok=True)
+
+    generate_multi_seed_heatmap(
+        mean_data, std_data, expert_mean, expert_std,
+        figure_dir, game_names,
+    )
+
+    # ── Save aggregated eval JSON ────────────────────────────────────
+    aggregated = {
+        "seeds": seeds,
+        "expert_mean": expert_mean,
+        "expert_std": expert_std,
+        "methods": {},
+    }
+    for method in mean_data:
+        aggregated["methods"][method] = {
+            game: {"mean": mean_data[method][game], "std": std_data[method][game]}
+            for game in game_names
+        }
+
+    agg_path = os.path.join(figure_dir, f"eval_aggregated_{args.tag}.json")
+    with open(agg_path, "w") as f:
+        json.dump(aggregated, f, indent=2)
+    print(f"  Aggregated results saved to {agg_path}")
+
+    # ── Print summary table ──────────────────────────────────────────
+    _print_multi_seed_summary(mean_data, std_data, expert_mean, expert_std,
+                              game_names, seeds)
+
+
+def _print_single_seed_summary(
+    all_eval_data: Dict[str, List[Dict]],
+    game_names: List[str],
+    seed: int,
+) -> None:
+    """Print a summary table for a single seed run."""
+    print(f"\n{'='*60}")
+    print(f"SUMMARY (seed={seed})")
+    print(f"{'='*60}")
 
     header = f"{'Method':<22}"
     for g in game_names:
         header += f" {g:>12}"
     header += f" {'Avg':>8}"
-    logger.info(header)
-    logger.info("-" * len(header))
+    print(header)
+    print("-" * len(header))
 
     for method in ["Expert", "Multi-Task", "WHC", "Distillation", "Hybrid",
                     "EWC", "Progress & Compress", "TRAC", "C-CHAIN"]:
@@ -1473,11 +1780,64 @@ def main():
                 row += f" {'N/A':>12}"
         if vals:
             row += f" {np.mean(vals):>8.1f}"
-        logger.info(row)
+        print(row)
 
-    logger.info(f"\nAll results saved to {figure_dir}/")
-    logger.info("Done.")
-    logger.close()
+    print()
+
+
+def _print_multi_seed_summary(
+    mean_data: Dict[str, Dict[str, float]],
+    std_data: Dict[str, Dict[str, float]],
+    expert_mean: Dict[str, float],
+    expert_std: Dict[str, float],
+    game_names: List[str],
+    seeds: List[int],
+) -> None:
+    """Print a summary table with mean +/- std across seeds."""
+    print(f"\n{'='*70}")
+    print(f"MULTI-SEED SUMMARY ({len(seeds)} seeds: {seeds})")
+    print(f"{'='*70}")
+
+    header = f"{'Method':<22}"
+    for g in game_names:
+        header += f" {g:>18}"
+    header += f" {'Avg':>12}"
+    print(header)
+    print("-" * len(header))
+
+    method_order = ["Expert", "Multi-Task", "WHC", "Distillation", "Hybrid",
+                    "EWC", "Progress & Compress", "TRAC", "C-CHAIN"]
+
+    for method in method_order:
+        if method == "Expert":
+            if not expert_mean:
+                continue
+            row = f"{'Expert':<22}"
+            vals = []
+            for g in game_names:
+                m = expert_mean.get(g, 0.0)
+                s = expert_std.get(g, 0.0)
+                row += f" {m:>8.1f}\u00b1{s:<7.1f}"
+                vals.append(m)
+            avg = float(np.mean(vals)) if vals else 0.0
+            row += f" {avg:>8.1f}"
+            print(row)
+            continue
+
+        if method not in mean_data:
+            continue
+        row = f"{method:<22}"
+        vals = []
+        for g in game_names:
+            m = mean_data[method].get(g, 0.0)
+            s = std_data[method].get(g, 0.0)
+            row += f" {m:>8.1f}\u00b1{s:<7.1f}"
+            vals.append(m)
+        avg = float(np.mean(vals)) if vals else 0.0
+        row += f" {avg:>8.1f}"
+        print(row)
+
+    print()
 
 
 if __name__ == "__main__":
