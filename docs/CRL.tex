@@ -1,0 +1,156 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathtools}
+
+\title{Weighted Hessian Consolidation: Derivation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Derivation}
+
+Let $\mathcal{W} = \mathbb{R}^d$ be the shared parameter space, with tasks indexed by
+$i \in \{1,2,3\}$. We write $\mathcal{L}_i : \mathcal{W} \to \mathbb{R}$ for the loss of
+task~$i$, assumed twice continuously differentiable, and
+$w_i^\star = \arg\min_w \mathcal{L}_i(w)$ for the optimal parameters of expert~$i$. The
+Hessian at the optimum is $H_i = \nabla^2 \mathcal{L}_i(w_i^\star) \in \mathbb{R}^{d \times d}$,
+with $H_i \succeq 0$ and at least one $H_i \succ 0$. Each task carries a weight
+$\alpha_i > 0$ with $\sum_{i=1}^{3} \alpha_i = 1$, and the generalized multi-task loss is
+$\mathcal{L}(w) = \sum_{i=1}^{3} \alpha_i \mathcal{L}_i(w)$, whose minimizer $w^\star$ is
+unknown.
+
+\paragraph{Taylor expansion of each expert loss.}
+Because each expert has been trained to convergence, the gradient of $\mathcal{L}_i$
+vanishes at $w_i^\star$, i.e.\ $\nabla\mathcal{L}_i(w_i^\star) = 0$. Expanding
+$\mathcal{L}_i$ about $w_i^\star$ to second order and dropping the zero gradient term gives
+\begin{equation}
+  \mathcal{L}_i(w) = \underbrace{\mathcal{L}_i(w_i^\star)}_{\text{constant}}
+    + \frac{1}{2}(w - w_i^\star)^\top H_i (w - w_i^\star) + R_i^{(3)}(w),
+  \label{eq:taylor}
+\end{equation}
+where $R_i^{(3)}(w)$ collects all third- and higher-order remainder terms.
+
+\paragraph{Forming the surrogate generalized loss.}
+Multiplying~\eqref{eq:taylor} by $\alpha_i$ and summing over all three tasks:
+\[
+  \mathcal{L}(w) = \sum_{i=1}^{3} \alpha_i\,\mathcal{L}_i(w)
+    \approx \underbrace{\sum_{i=1}^{3} \alpha_i\,\mathcal{L}_i(w_i^\star)}_{\widetilde C\;\text{(constant w.r.t.\ $w$)}}
+    + \frac{1}{2}\sum_{i=1}^{3} \alpha_i (w - w_i^\star)^\top H_i (w - w_i^\star),
+\]
+where we have neglected the remainder terms $R_i^{(3)}$. Denoting the constant by
+$\widetilde C$, the surrogate is
+\begin{equation}
+  \widetilde{\mathcal{L}}(w) \coloneqq \widetilde C
+    + \frac{1}{2}\sum_{i=1}^{3} \alpha_i (w - w_i^\star)^\top H_i (w - w_i^\star).
+  \label{eq:surrogate}
+\end{equation}
+
+Expanding into a single quadratic gives
+\begin{equation}
+  (w - w_i^\star)^\top H_i (w - w_i^\star)
+    = w^\top H_i w \;-\; 2\,w^\top H_i w_i^\star \;+\; (w_i^\star)^\top H_i w_i^\star.
+  \label{eq:expand}
+\end{equation}
+The last term $(w_i^\star)^\top H_i w_i^\star$ does not depend on~$w$, so it can be
+absorbed into the constant $\widetilde C$. Substituting~\eqref{eq:expand}
+into~\eqref{eq:surrogate} and collecting terms by their dependence on~$w$:
+\begin{align}
+  \widetilde{\mathcal{L}}(w)
+    &= C + \frac{1}{2}\sum_{i=1}^{3}\alpha_i\,w^\top H_i w
+       - \sum_{i=1}^{3}\alpha_i\,w^\top H_i w_i^\star \notag\\
+    &= C + \frac{1}{2}\,w^\top\!\Bigl(\sum_{i=1}^{3}\alpha_i H_i\Bigr)w
+       - w^\top\!\Bigl(\sum_{i=1}^{3}\alpha_i H_i w_i^\star\Bigr),
+  \label{eq:quadratic}
+\end{align}
+where $C$ absorbs all terms independent of~$w$. Defining
+\begin{equation}
+  H_{\mathrm{agg}} \;\coloneqq\; \sum_{i=1}^{3}\alpha_i H_i \;\in\;\mathbb{R}^{d\times d},
+  \qquad
+  b_{\mathrm{agg}} \;\coloneqq\; \sum_{i=1}^{3}\alpha_i H_i w_i^\star \;\in\;\mathbb{R}^d.
+  \label{eq:agg}
+\end{equation}
+The surrogate now takes the compact form
+\begin{equation}
+  \widetilde{\mathcal{L}}(w) = C + \frac{1}{2}\,w^\top H_{\mathrm{agg}}\,w
+    - w^\top b_{\mathrm{agg}}.
+  \label{eq:compact}
+\end{equation}
+
+\paragraph{Finding the minimizer.}
+\[
+  \nabla_w \widetilde{\mathcal{L}}(w) \;=\; H_{\mathrm{agg}}\,w - b_{\mathrm{agg}}.
+\]
+Setting this to zero is the necessary and sufficient condition for a minimizer, since
+$H_{\mathrm{agg}} \succ 0$ ensures strict convexity:
+\[
+  H_{\mathrm{agg}}\,w = b_{\mathrm{agg}}.
+\]
+This is a linear system $Ax = b$ in~$w$. Since each $H_i \succeq 0$ and at least one
+$H_i \succ 0$ with $\alpha_i > 0$, we have $H_{\mathrm{agg}} \succ 0$ and therefore
+$H_{\mathrm{agg}}$ is invertible. Left-multiplying both sides by $H_{\mathrm{agg}}^{-1}$:
+\begin{equation}
+  \boxed{\;\widehat w = H_{\mathrm{agg}}^{-1}\,b_{\mathrm{agg}}
+    = \Bigl(\sum_{i=1}^{3}\alpha_i H_i\Bigr)^{\!-1}
+      \Bigl(\sum_{i=1}^{3}\alpha_i H_i w_i^\star\Bigr).\;}
+  \label{eq:whc}
+\end{equation}
+This is the \emph{Hessian-weighted consolidation} of the expert optima. When all
+experts share the same curvature, $H_i = H$, it reduces to the $\alpha$-weighted
+arithmetic mean $\widehat w = \sum_i \alpha_i w_i^\star$. In general, experts with
+larger curvature (higher confidence, narrower bowl) exert a stronger pull on~$\widehat w$.
+
+\paragraph{Regularized variant.}
+In practice, neural network Hessians near convergence are not full rank: they typically
+have a large null space corresponding to directions the training data could not
+constrain. When $H_{\mathrm{agg}}$ is singular or ill-conditioned, the system
+$H_{\mathrm{agg}}\,w = b_{\mathrm{agg}}$ is unstable.
+
+We introduce Tikhonov regularization by adding a penalty that anchors the solution
+toward the ensemble mean $\bar{w} = \frac{1}{N}\sum_{i=1}^{N} w_i^\star$. The
+regularized surrogate becomes
+\begin{equation}
+  \widetilde{\mathcal{L}}_\lambda(w)
+    = \widetilde{\mathcal{L}}(w)
+    + \frac{\lambda}{2}\,\|w - \bar{w}\|^2, \qquad \lambda > 0,
+  \label{eq:regularized-surrogate}
+\end{equation}
+which replaces $H_{\mathrm{agg}}$ with
+\[
+  H_\lambda \;\coloneqq\; H_{\mathrm{agg}} + \lambda I, \quad \lambda > 0,
+\]
+and shifts the linear term to $b_{\mathrm{agg}} + \lambda\bar{w}$.
+The matrix $H_\lambda$ adds $\lambda$ uniformly to every eigenvalue and is therefore
+strictly positive definite for any $\lambda > 0$, regardless of whether
+$H_{\mathrm{agg}}$ itself is invertible. Setting $\nabla_w \widetilde{\mathcal{L}}_\lambda = 0$
+gives the regularized minimizer
+\begin{equation}
+  \boxed{\;\widehat w_\lambda
+    = H_\lambda^{-1}(b_{\mathrm{agg}} + \lambda\bar{w})
+    = \Bigl(\sum_{i=1}^{3}\alpha_i H_i + \lambda I\Bigr)^{\!-1}
+      \Bigl(\sum_{i=1}^{3}\alpha_i H_i w_i^\star + \lambda\bar{w}\Bigr).\;}
+  \label{eq:whc-reg}
+\end{equation}
+
+\paragraph{Interpretation.}
+Equation~\eqref{eq:whc-reg} admits a clean interpretation in two limiting regimes:
+\begin{itemize}
+  \item \textbf{Small $\lambda$} ($\lambda \to 0$): the solution recovers the
+    unregularized Hessian-weighted consolidation~\eqref{eq:whc}, $\widehat w_\lambda
+    \to H_{\mathrm{agg}}^{-1} b_{\mathrm{agg}}$. The Fisher curvature of each expert
+    fully determines how expert optima are blended.
+  \item \textbf{Large $\lambda$} ($\lambda \to \infty$): the regularization term
+    dominates and $\widehat w_\lambda \to \bar{w}$, the ensemble mean of all expert
+    parameters. This provides a safe fallback when the Hessian approximation is
+    unreliable.
+\end{itemize}
+In practice, $\lambda$ interpolates between these extremes: small $\lambda$ trusts the
+second-order curvature information, while large $\lambda$ falls back to the robust
+ensemble mean. The ensemble-mean anchor ensures the regularized solution always lies in
+a sensible region of parameter space, unlike standard Tikhonov regularization toward
+the origin, which can produce degenerate solutions when $\lambda$ is large.
+
+\end{document}

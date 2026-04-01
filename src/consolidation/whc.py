@@ -269,14 +269,27 @@ class WHCConsolidator:
 
             del expert_model
 
-        # Solve: w_hat = (H_agg + lambda I)^{-1} b_agg  (Eq. 13)
+        # Solve: w_hat = (H_agg + lambda I)^{-1} (b_agg + lambda * w_bar)
+        # The lambda * w_bar term regularizes toward the ensemble mean
+        # rather than toward zero, ensuring the solution remains in a
+        # sensible region of parameter space when lambda is large.
         self._log(f"  Solving closed-form consolidation (lambda={lam})...")
+
+        # Compute ensemble mean for regularization anchor
+        ensemble_mean = {
+            name: torch.stack(
+                [r["policy_state_dict"][name].float().to(self.device)
+                 for r in expert_results]
+            ).mean(dim=0)
+            for name in trainable_names
+        }
 
         consolidated_sd = {}
         for name in ref_sd:
             if name in h_agg:
                 denominator = h_agg[name] + lam
-                consolidated_sd[name] = b_agg[name] / (denominator + 1e-12)
+                numerator = b_agg[name] + lam * ensemble_mean[name]
+                consolidated_sd[name] = numerator / (denominator + 1e-12)
             else:
                 # Non-trainable parameters: average across experts
                 consolidated_sd[name] = torch.stack(
@@ -286,14 +299,6 @@ class WHCConsolidator:
 
         # Log consolidation statistics
         if self.logger:
-            # Distance from ensemble mean
-            ensemble_mean = {
-                name: torch.stack(
-                    [r["policy_state_dict"][name].float().to(self.device)
-                     for r in expert_results]
-                ).mean(dim=0)
-                for name in trainable_names
-            }
             dist_from_mean = sum(
                 (consolidated_sd[n] - ensemble_mean[n]).norm().item() ** 2
                 for n in trainable_names
