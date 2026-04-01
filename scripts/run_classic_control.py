@@ -1131,28 +1131,17 @@ def generate_reward_distributions(
 # Main
 # ═══════════════════════════════════════════════════════════════════════
 
-def run_single_seed(
+def run_pipeline(
     config: Dict[str, Any],
-    seed: int,
     device: str,
-    base_tag: str = "default",
+    tag: str = "default",
     skip_experts: bool = False,
-    shared_expert_results: Optional[List[Dict[str, Any]]] = None,
-    shared_filtered_states: Optional[List[torch.Tensor]] = None,
 ) -> Dict[str, List[Dict]]:
-    """Run the full experiment pipeline for a single seed.
-
-    When *shared_expert_results* and *shared_filtered_states* are provided,
-    expert training (Step 1) and state filtering (Step 2) are skipped and
-    the shared data is reused.  This avoids redundant expert training
-    across seeds since well-trained experts are seed-independent.
+    """Run the full experiment pipeline.
 
     Returns {method_name: [per-game eval dicts]}.
     """
-    config = copy.deepcopy(config)
-    config["seed"] = seed
-    set_seed(seed)
-    tag = f"{base_tag}_seed{seed}"
+    set_seed(config["seed"])
 
     task_sequence = config["task_sequence"]
     union_actions = compute_union_action_space_classic(task_sequence)
@@ -1189,17 +1178,8 @@ def run_single_seed(
     # ══════════════════════════════════════════════════════════════════
     # STEP 1 & 2: Experts and filtered states
     # ══════════════════════════════════════════════════════════════════
-    # Experts are seed-independent: a well-trained expert produces the
-    # same quality regardless of training seed.  When shared_expert_results
-    # is provided (multi-seed mode), we skip training and reuse them.
 
-    if shared_expert_results is not None and shared_filtered_states is not None:
-        logger.info("\n" + "=" * 60)
-        logger.info("Using shared experts (trained once, reused across seeds)")
-        logger.info("=" * 60)
-        expert_results = shared_expert_results
-        filtered_states_list = shared_filtered_states
-    elif skip_experts:
+    if skip_experts:
         logger.info("\n" + "=" * 60)
         logger.info("STEP 1: Loading experts from checkpoints")
         logger.info("=" * 60)
@@ -1455,6 +1435,10 @@ def run_single_seed(
 # Multi-seed aggregation heatmap
 # ═══════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════
+# Main entry point
+# ═══════════════════════════════════════════════════════════════════════
+
 # Random baselines for normalized score: (method - random) / (expert - random) * 100
 RANDOM_BASELINES = {
     "CartPole": 20.0,
@@ -1463,161 +1447,8 @@ RANDOM_BASELINES = {
 }
 
 
-def generate_multi_seed_heatmap(
-    mean_data: Dict[str, Dict[str, float]],
-    std_data: Dict[str, Dict[str, float]],
-    expert_mean: Dict[str, float],
-    expert_std: Dict[str, float],
-    figure_dir: str,
-    game_names: List[str],
-) -> None:
-    """Generate retention heatmap with mean +/- std across seeds.
-
-    Uses normalized score: (method - random) / (expert - random) * 100.
-    Includes expert row, avg retention column, sorted by avg retention.
-    """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import matplotlib as mpl
-    from matplotlib.colors import TwoSlopeNorm
-
-    mpl.rcParams.update({
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Inter', 'Helvetica', 'Arial'],
-        'axes.spines.top': False, 'axes.spines.right': False,
-        'axes.grid': True, 'grid.color': '#E9ECEF', 'grid.linewidth': 0.6,
-        'axes.edgecolor': '#495057', 'axes.labelcolor': '#212529',
-        'xtick.color': '#6C757D', 'ytick.color': '#6C757D',
-        'figure.dpi': 150, 'savefig.dpi': 300, 'savefig.bbox': 'tight',
-    })
-
-    method_order = ["Expert", "Multi-Task", "WHC", "Distillation", "Hybrid",
-                    "EWC", "Progress & Compress", "TRAC", "C-CHAIN"]
-
-    methods = [m for m in method_order if m in mean_data or m == "Expert"]
-    n_g = len(game_names)
-
-    if len(methods) == 0:
-        print("  No methods to plot in multi-seed heatmap.")
-        return
-
-    # Build normalized score matrix and avg column
-    # Columns: game_names + "Avg Retention"
-    col_labels = game_names + ["Avg Retention"]
-    n_cols = len(col_labels)
-
-    norm_mean = {}  # method -> list of normalized means (per game + avg)
-    norm_std = {}   # method -> list of normalized stds (per game + avg)
-
-    for method in methods:
-        row_means = []
-        row_stds = []
-        for game in game_names:
-            random_b = RANDOM_BASELINES.get(game, 0.0)
-            if method == "Expert":
-                m_reward = expert_mean.get(game, 0.0)
-                s_reward = expert_std.get(game, 0.0)
-            else:
-                m_reward = mean_data.get(method, {}).get(game, 0.0)
-                s_reward = std_data.get(method, {}).get(game, 0.0)
-
-            expert_r = expert_mean.get(game, 1.0)
-            denom = expert_r - random_b
-            if abs(denom) < 1e-6:
-                n_score = 100.0 if abs(m_reward - expert_r) < 1e-6 else 0.0
-                n_std_score = 0.0
-            else:
-                n_score = (m_reward - random_b) / denom * 100.0
-                n_std_score = s_reward / abs(denom) * 100.0
-            row_means.append(n_score)
-            row_stds.append(n_std_score)
-
-        # Avg retention
-        avg_mean = float(np.mean(row_means))
-        avg_std = float(np.mean(row_stds))
-        row_means.append(avg_mean)
-        row_stds.append(avg_std)
-
-        norm_mean[method] = row_means
-        norm_std[method] = row_stds
-
-    # Sort methods by avg retention (last column), but keep Expert at top
-    non_expert = [m for m in methods if m != "Expert"]
-    non_expert.sort(key=lambda m: norm_mean[m][-1], reverse=True)
-    sorted_methods = ["Expert"] + non_expert if "Expert" in methods else non_expert
-
-    n_m = len(sorted_methods)
-    ret_matrix = np.zeros((n_m, n_cols))
-    for i, method in enumerate(sorted_methods):
-        for j in range(n_cols):
-            ret_matrix[i, j] = norm_mean[method][j]
-
-    fig, ax = plt.subplots(figsize=(max(8, 2.2 * n_cols), 0.6 * n_m + 2.5))
-
-    vmin = min(0, np.nanmin(ret_matrix))
-    vmax = max(100, np.nanmax(ret_matrix) * 1.05)
-    vcenter = 50
-    if vmin >= vcenter:
-        vcenter = (vmin + vmax) / 2
-    norm_obj = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
-    cmap = mpl.colormaps.get_cmap("RdYlGn")
-
-    im = ax.imshow(ret_matrix, cmap=cmap, norm=norm_obj, aspect="auto")
-
-    # Annotate cells with "mean +/- std" in black text
-    for i, method in enumerate(sorted_methods):
-        for j in range(n_cols):
-            m_val = norm_mean[method][j]
-            s_val = norm_std[method][j]
-            cell_text = f"{m_val:.1f}\n\u00b1{s_val:.1f}"
-            ax.text(j, i, cell_text,
-                    ha="center", va="center", fontsize=9, fontweight="600",
-                    color="#212529")
-
-    ax.set_xticks(range(n_cols))
-    ax.set_xticklabels(col_labels, fontsize=11)
-    ax.set_yticks(range(n_m))
-    ax.set_yticklabels(sorted_methods, fontsize=10)
-
-    # White grid lines between cells
-    for e in range(n_cols + 1):
-        ax.axvline(e - 0.5, color="white", linewidth=2.5)
-    for e in range(n_m + 1):
-        ax.axhline(e - 0.5, color="white", linewidth=2.5)
-
-    # Separator line between Expert row and methods
-    if "Expert" in sorted_methods:
-        ax.axhline(0.5, color="#495057", linewidth=2.0)
-
-    # Separator line before Avg Retention column
-    ax.axvline(n_g - 0.5, color="#495057", linewidth=2.0)
-
-    cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
-    cbar.set_label("Normalized Score (%)", fontsize=11)
-
-    ax.set_title("Normalized Retention (multi-seed mean \u00b1 std)",
-                 fontsize=14, fontweight="600", color="#212529", pad=14,
-                 fontfamily="serif")
-
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-
-    for fmt in ("png", "svg"):
-        out_dir = os.path.join(figure_dir, fmt)
-        os.makedirs(out_dir, exist_ok=True)
-        fig.savefig(os.path.join(out_dir, f"02_retention_heatmap.{fmt}"),
-                    dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
-    print(f"  Multi-seed heatmap saved to {figure_dir}/{{png,svg}}/")
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Main entry point
-# ═══════════════════════════════════════════════════════════════════════
-
 def main() -> None:
-    """Parse arguments and orchestrate multi-seed experiments."""
+    """Parse arguments and run the experiment."""
     parser = argparse.ArgumentParser(description="CRL Classic Control experiments")
     parser.add_argument("--config", type=str,
                         default="configs/classic_control.yaml",
@@ -1628,8 +1459,6 @@ def main() -> None:
                         help="Experiment tag for logging/checkpoints")
     parser.add_argument("--skip-experts", action="store_true",
                         help="Load pre-trained experts from checkpoints")
-    parser.add_argument("--single-seed", type=int, default=None,
-                        help="Run only this seed (skip multi-seed aggregation)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -1638,218 +1467,30 @@ def main() -> None:
     config = apply_debug_overrides(config)
     device = get_device()
 
-    seeds = config.get("seeds", [42, 123, 456, 789, 1024])
-
-    task_sequence = config["task_sequence"]
-    game_names = [env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
-                  for env_id in task_sequence]
+    game_names = [
+        env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
+        for env_id in config["task_sequence"]
+    ]
     figure_dir = config["logging"]["figure_dir"]
 
-    if args.single_seed is not None:
-        # Single-seed mode: run one seed and generate figures directly
-        seed = args.single_seed
-        print(f"\n{'='*60}")
-        print(f"Running single seed: {seed}")
-        print(f"{'='*60}")
-        all_eval_data = run_single_seed(
-            config, seed, device,
-            base_tag=args.tag, skip_experts=args.skip_experts,
-        )
-
-        # Build expert_rewards from the returned data
-        expert_rewards = {}
-        if "Expert" in all_eval_data:
-            for ev in all_eval_data["Expert"]:
-                expert_rewards[ev["game_name"]] = ev["mean_reward"]
-
-        # Generate single-seed heatmap and distributions
-        generate_heatmap(all_eval_data, expert_rewards, figure_dir, game_names)
-        generate_reward_distributions(all_eval_data, figure_dir, game_names)
-
-        # Print summary
-        _print_single_seed_summary(all_eval_data, game_names, seed)
-        return
-
-    # ── Multi-seed mode ──────────────────────────────────────────────
-    print(f"\n{'='*60}")
-    print(f"Multi-seed experiment: seeds={seeds}")
-    print(f"{'='*60}")
-
-    # ── Train experts ONCE (seed-independent) ────────────────────────
-    # Expert quality depends on architecture + training budget, not on
-    # random seed.  We train 3 experts with seed=seeds[0] and reuse
-    # them for every consolidation/evaluation seed.
-    expert_seed = seeds[0]
-    print(f"\nTraining shared experts (seed={expert_seed}, trained once)...")
-    expert_config = copy.deepcopy(config)
-    expert_config["seed"] = expert_seed
-    set_seed(expert_seed)
-
-    task_sequence = config["task_sequence"]
-    union_actions = compute_union_action_space_classic(task_sequence)
-    max_state_dim = compute_max_state_dim(task_sequence)
-    expert_config["model"]["unified_action_dim"] = len(union_actions)
-    expert_config["max_state_dim"] = max_state_dim
-
-    expert_tag = f"{args.tag}_experts"
-    checkpoint_dir = config["logging"]["checkpoint_dir"]
-
-    expert_logger = setup_logger(
-        log_dir=config["logging"]["log_dir"],
-        experiment_name=f"classic_control_{expert_tag}",
-        use_tensorboard=config["logging"].get("use_tensorboard", False),
+    all_eval_data = run_pipeline(
+        config, device,
+        tag=args.tag, skip_experts=args.skip_experts,
     )
 
-    shared_expert_results = []
-    if args.skip_experts:
-        expert_logger.info("Loading pre-trained experts from checkpoints...")
-        for env_id in task_sequence:
-            gn = env_id.replace("-v1", "").replace("-v2", "").replace("-v3", "")
-            ckpt_path = os.path.join(checkpoint_dir, expert_tag, f"expert_{gn}_best.pt")
-            model = build_model(expert_config, device)
-            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
-            valid_actions = get_valid_actions_classic(env_id, union_actions)
+    # Build expert_rewards from the returned data
+    expert_rewards = {}
+    if "Expert" in all_eval_data:
+        for ev in all_eval_data["Expert"]:
+            expert_rewards[ev["game_name"]] = ev["mean_reward"]
 
-            replay_buffer = VectorReplayBuffer(
-                expert_config["training"]["buffer_size"], max_state_dim, device)
-            env = make_classic_control_env(env_id, union_actions, max_state_dim, seed=expert_seed)
-            state, _ = env.reset()
-            for _ in range(config.get("buffer_size_per_task", 50000)):
-                action = np.random.choice(valid_actions)
-                ns, r, t1, t2, _ = env.step(action)
-                replay_buffer.push(state, action, r, ns, t1 or t2)
-                state = ns if not (t1 or t2) else env.reset()[0]
-            env.close()
+    # Generate heatmap and distributions
+    generate_heatmap(all_eval_data, expert_rewards, figure_dir, game_names)
+    generate_reward_distributions(all_eval_data, figure_dir, game_names)
 
-            shared_expert_results.append({
-                "policy_state_dict": copy.deepcopy(model.state_dict()),
-                "valid_actions": valid_actions,
-                "game_name": gn, "env_id": env_id,
-                "replay_buffer": replay_buffer,
-            })
-            expert_logger.info(f"  Loaded {gn}")
-    else:
-        for env_id in task_sequence:
-            result = train_expert(
-                expert_config, env_id, union_actions, max_state_dim,
-                device, expert_logger, expert_tag,
-            )
-            shared_expert_results.append(result)
-
-    # Collect filtered states once
-    shared_filtered_states = []
-    htcl_cfg = config.get("htcl", {})
-    filtered_buffer_size = htcl_cfg.get("filtered_buffer_size", 50000)
-    for result in shared_expert_results:
-        model = build_model(expert_config, device)
-        model.load_state_dict(result["policy_state_dict"])
-        filt = result["replay_buffer"].filter_by_confidence(
-            model, result["valid_actions"], filtered_buffer_size)
-        shared_filtered_states.append(filt)
-        print(f"  {result['game_name']}: {filt.shape[0]} filtered states")
-
-    expert_logger.close()
-    print("Shared experts ready.\n")
-
-    # ── Run each seed (consolidation + sequential methods only) ──────
-    all_seed_results = {}
-
-    for seed in seeds:
-        print(f"\n{'='*60}")
-        print(f"  Seed {seed}")
-        print(f"{'='*60}")
-        seed_data = run_single_seed(
-            config, seed, device,
-            base_tag=args.tag, skip_experts=False,
-            shared_expert_results=shared_expert_results,
-            shared_filtered_states=shared_filtered_states,
-        )
-        all_seed_results[seed] = seed_data
-
-    # ── Aggregate across seeds ───────────────────────────────────────
-    # Collect per-method, per-game mean_reward across seeds
-    all_methods = set()
-    for seed_data in all_seed_results.values():
-        all_methods.update(seed_data.keys())
-
-    # mean_data[method][game] = mean across seeds
-    # std_data[method][game]  = std across seeds
-    mean_data: Dict[str, Dict[str, float]] = {}
-    std_data: Dict[str, Dict[str, float]] = {}
-    expert_mean: Dict[str, float] = {}
-    expert_std: Dict[str, float] = {}
-
-    for method in all_methods:
-        if method == "Expert":
-            # Aggregate expert rewards separately
-            for game in game_names:
-                rewards_across_seeds = []
-                for seed_data in all_seed_results.values():
-                    if "Expert" in seed_data:
-                        eval_dict = {e["game_name"]: e for e in seed_data["Expert"]}
-                        if game in eval_dict:
-                            rewards_across_seeds.append(eval_dict[game]["mean_reward"])
-                if rewards_across_seeds:
-                    expert_mean[game] = float(np.mean(rewards_across_seeds))
-                    expert_std[game] = float(np.std(rewards_across_seeds))
-            continue
-
-        mean_data[method] = {}
-        std_data[method] = {}
-        for game in game_names:
-            rewards_across_seeds = []
-            for seed_data in all_seed_results.values():
-                if method in seed_data:
-                    eval_dict = {e["game_name"]: e for e in seed_data[method]}
-                    if game in eval_dict:
-                        rewards_across_seeds.append(eval_dict[game]["mean_reward"])
-            if rewards_across_seeds:
-                mean_data[method][game] = float(np.mean(rewards_across_seeds))
-                std_data[method][game] = float(np.std(rewards_across_seeds))
-            else:
-                mean_data[method][game] = 0.0
-                std_data[method][game] = 0.0
-
-    # ── Generate multi-seed heatmap ──────────────────────────────────
-    os.makedirs(os.path.join(figure_dir, "png"), exist_ok=True)
-    os.makedirs(os.path.join(figure_dir, "svg"), exist_ok=True)
-
-    generate_multi_seed_heatmap(
-        mean_data, std_data, expert_mean, expert_std,
-        figure_dir, game_names,
-    )
-
-    # ── Save aggregated eval JSON ────────────────────────────────────
-    aggregated = {
-        "seeds": seeds,
-        "expert_mean": expert_mean,
-        "expert_std": expert_std,
-        "methods": {},
-    }
-    for method in mean_data:
-        aggregated["methods"][method] = {
-            game: {"mean": mean_data[method][game], "std": std_data[method][game]}
-            for game in game_names
-        }
-
-    agg_path = os.path.join(figure_dir, f"eval_aggregated_{args.tag}.json")
-    with open(agg_path, "w") as f:
-        json.dump(aggregated, f, indent=2)
-    print(f"  Aggregated results saved to {agg_path}")
-
-    # ── Print summary table ──────────────────────────────────────────
-    _print_multi_seed_summary(mean_data, std_data, expert_mean, expert_std,
-                              game_names, seeds)
-
-
-def _print_single_seed_summary(
-    all_eval_data: Dict[str, List[Dict]],
-    game_names: List[str],
-    seed: int,
-) -> None:
-    """Print a summary table for a single seed run."""
+    # Print summary
     print(f"\n{'='*60}")
-    print(f"SUMMARY (seed={seed})")
+    print("SUMMARY")
     print(f"{'='*60}")
 
     header = f"{'Method':<22}"
@@ -1878,62 +1519,7 @@ def _print_single_seed_summary(
             row += f" {np.mean(vals):>8.1f}"
         print(row)
 
-    print()
-
-
-def _print_multi_seed_summary(
-    mean_data: Dict[str, Dict[str, float]],
-    std_data: Dict[str, Dict[str, float]],
-    expert_mean: Dict[str, float],
-    expert_std: Dict[str, float],
-    game_names: List[str],
-    seeds: List[int],
-) -> None:
-    """Print a summary table with mean +/- std across seeds."""
-    print(f"\n{'='*70}")
-    print(f"MULTI-SEED SUMMARY ({len(seeds)} seeds: {seeds})")
-    print(f"{'='*70}")
-
-    header = f"{'Method':<22}"
-    for g in game_names:
-        header += f" {g:>18}"
-    header += f" {'Avg':>12}"
-    print(header)
-    print("-" * len(header))
-
-    method_order = ["Expert", "Multi-Task", "WHC", "Distillation", "Hybrid",
-                    "EWC", "Progress & Compress", "TRAC", "C-CHAIN"]
-
-    for method in method_order:
-        if method == "Expert":
-            if not expert_mean:
-                continue
-            row = f"{'Expert':<22}"
-            vals = []
-            for g in game_names:
-                m = expert_mean.get(g, 0.0)
-                s = expert_std.get(g, 0.0)
-                row += f" {m:>8.1f}\u00b1{s:<7.1f}"
-                vals.append(m)
-            avg = float(np.mean(vals)) if vals else 0.0
-            row += f" {avg:>8.1f}"
-            print(row)
-            continue
-
-        if method not in mean_data:
-            continue
-        row = f"{method:<22}"
-        vals = []
-        for g in game_names:
-            m = mean_data[method].get(g, 0.0)
-            s = std_data[method].get(g, 0.0)
-            row += f" {m:>8.1f}\u00b1{s:<7.1f}"
-            vals.append(m)
-        avg = float(np.mean(vals)) if vals else 0.0
-        row += f" {avg:>8.1f}"
-        print(row)
-
-    print()
+    print(f"\nResults saved to {figure_dir}/")
 
 
 if __name__ == "__main__":

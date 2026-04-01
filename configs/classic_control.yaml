@@ -11,8 +11,6 @@
 
 # --- Seed & Reproducibility ---
 seed: 42
-# Multiple seeds for confidence intervals (run script iterates over these)
-seeds: [42, 123, 456, 789, 1024]
 
 # --- Dataset Identifier ---
 dataset: classic_control
