@@ -1,12 +1,11 @@
 #!/bin/sh
 #SBATCH --job-name=crl_classic
 #SBATCH -N 1
-#SBATCH -n 24
+#SBATCH -n 8
 #SBATCH --gres=gpu:1
 #SBATCH --output job%j.%N.out
 #SBATCH --error job%j.%N.err
 #SBATCH -p dgx_aic
-#SBATCH --time=06:00:00
 
 # =============================================================================
 # CRL Classic Control: Full Multi-Seed Experiment
