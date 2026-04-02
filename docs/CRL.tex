@@ -3,8 +3,9 @@
 \usepackage{amsmath, amssymb, amsthm}
 \usepackage[margin=1in]{geometry}
 \usepackage{mathtools}
+\usepackage{booktabs}
 
-\title{Weighted Hessian Consolidation: Derivation}
+\title{Weighted Hessian Consolidation: Derivation and Experimental Validation}
 \author{}
 \date{}
 
@@ -152,5 +153,87 @@ second-order curvature information, while large $\lambda$ falls back to the robu
 ensemble mean. The ensemble-mean anchor ensures the regularized solution always lies in
 a sensible region of parameter space, unlike standard Tikhonov regularization toward
 the origin, which can produce degenerate solutions when $\lambda$ is large.
+
+\section*{Experimental Validation}
+
+We evaluate WHC (Eq.~\ref{eq:whc-reg}) on two reinforcement learning domains, each
+involving $N=3$ tasks trained as independent DQN experts and consolidated into a single
+multi-task network.
+
+\paragraph{Domains.}
+\begin{itemize}
+  \item \textbf{Atari} (image-based): Breakout, SpaceInvaders, Pong.
+    3-layer CNN backbone (32-64-64 channels), 512-unit FC layer, unified 6-action output.
+    Experts trained for 3M steps each.
+  \item \textbf{Classic Control} (vector-state): CartPole-v1, Acrobot-v1, LunarLander-v3.
+    2-layer MLP (128-128 units), unified 4-action output, observations zero-padded to
+    $\mathbb{R}^8$. Experts trained for 200K steps each.
+\end{itemize}
+In both domains, $H_i$ is approximated by the diagonal empirical Fisher information
+computed at each expert's own optimum $w_i^\star$ using 20{,}000 high-confidence replay
+states (ranked by Q-value gap), with uniform task weights $\alpha_i = 1/3$.
+
+\paragraph{Atari results.}
+Evaluation uses 30 episodes per game with a deterministic policy (seed 42).
+Retention is defined as consolidated reward divided by expert reward.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{Breakout} & \textbf{SpaceInvaders} & \textbf{Pong} & \textbf{Avg Ret.} \\
+\midrule
+Expert        & $386.0 \pm 35.0$  & $1030.8 \pm 257.4$ & $19.9 \pm 0.9$  & --- \\
+\midrule
+Multi-task    & $137.2 \pm 71.7$  & $992.7 \pm 621.8$  & $5.7 \pm 16.2$  & 53.4\% \\
+Hybrid        & $9.2 \pm 3.2$     & $543.8 \pm 145.6$  & $18.0 \pm 3.9$  & 48.5\% \\
+Distillation  & $16.8 \pm 9.3$    & $372.3 \pm 44.1$   & $18.0 \pm 3.7$  & 43.6\% \\
+EWC           & $40.7 \pm 4.0$    & $244.5 \pm 64.4$   & $-20.8 \pm 0.4$ & $-$23.4\% \\
+\textbf{WHC}  & $3.3 \pm 5.0$     & $270.0 \pm 0.0$    & $-21.0 \pm 0.0$ & $-$26.2\% \\
+\bottomrule
+\end{tabular}
+\caption{Atari consolidation results (mean $\pm$ std over 30 episodes).}
+\label{tab:atari}
+\end{table}
+
+\paragraph{Classic Control results.}
+Evaluation uses 500 episodes per task. Acrobot scores range from $-500$ (timeout) to
+approximately $-60$ (expert-level); CartPole maximum is 500.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Method} & \textbf{CartPole} & \textbf{Acrobot} & \textbf{LunarLander} \\
+\midrule
+Expert        & $500.0 \pm 0.0$   & $-83.6 \pm 14.4$   & $107.0 \pm 106.9$ \\
+\midrule
+\textbf{WHC}  & $486.3 \pm 73.6$  & $-500.0 \pm 0.0$   & $-224.2 \pm 215.9$ \\
+Multi-task    & $154.6 \pm 80.0$  & $-121.6 \pm 30.1$  & $-63.6 \pm 99.4$ \\
+Distillation  & $117.4 \pm 102.4$ & $-500.0 \pm 0.0$   & $-246.2 \pm 223.4$ \\
+Hybrid        & $83.8 \pm 3.4$    & $-476.1 \pm 57.0$  & $-318.9 \pm 193.3$ \\
+TRAC          & $500.0 \pm 0.0$   & $-500.0 \pm 0.0$   & $-123.4 \pm 51.0$ \\
+C-CHAIN       & $9.6 \pm 0.6$     & $-211.2 \pm 76.3$  & $-39.2 \pm 23.8$ \\
+P\&C          & $9.1 \pm 0.7$     & $-500.0 \pm 0.0$   & $53.2 \pm 61.4$ \\
+EWC           & $13.6 \pm 1.3$    & $-500.0 \pm 0.0$   & $-116.3 \pm 53.4$ \\
+\bottomrule
+\end{tabular}
+\caption{Classic Control consolidation results (mean $\pm$ std over 500 episodes).}
+\label{tab:classic}
+\end{table}
+
+\paragraph{Discussion.}
+WHC's closed-form solution achieves strong retention on structurally simple tasks
+(CartPole: 97.3\% of expert, SpaceInvaders: 26.2\%) but fails on tasks requiring
+precise temporal control (Pong: $-21.0$, Acrobot: $-500$). The diagonal Fisher
+approximation captures per-parameter importance but discards cross-parameter
+interactions critical for coordinated feature activations in fine-grained control
+policies. Among the methods tested, KD-based approaches (Distillation, Hybrid)
+achieve the highest Pong retention ($\sim$90\%), while Multi-task joint training
+leads overall on Atari (53.4\% average retention). On Classic Control, no single
+method dominates: TRAC and WHC excel on CartPole, Multi-task and C-CHAIN solve
+Acrobot, and only Progress \& Compress achieves a positive LunarLander score.
+Block-diagonal or K-FAC Fisher approximations are a natural next step for
+improving WHC on temporally demanding tasks.
 
 \end{document}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CRL-Atari: Consolidation Experiment Report</title>
+<title>CRL: Continual RL Consolidation Report</title>
 <style>
   :root {
     --blue: #2563EB;
@@ -12,6 +12,8 @@
     --red: #DC2626;
     --violet: #7C3AED;
     --teal: #0891B2;
+    --rose: #BE185D;
+    --sienna: #92400E;
     --text: #212529;
     --text-muted: #6C757D;
     --bg: #FFFFFF;
@@ -116,13 +118,14 @@
     margin: 0.75rem 0;
   }
   .method-card h3 { margin-top: 0; }
-  .method-card.distillation { border-color: var(--teal); }
-  .method-card.oneshot     { border-color: var(--amber); }
-  .method-card.iterative   { border-color: var(--violet); }
-  .method-card.hybrid      { border-color: var(--green); }
   .method-card.whc         { border-color: var(--blue); }
-  .method-card.ewc         { border-color: #D97706; }
+  .method-card.distillation { border-color: var(--teal); }
+  .method-card.hybrid      { border-color: var(--green); }
+  .method-card.ewc         { border-color: var(--amber); }
   .method-card.multitask   { border-color: var(--red); }
+  .method-card.trac        { border-color: var(--sienna); }
+  .method-card.cchain      { border-color: var(--rose); }
+  .method-card.pc          { border-color: var(--violet); }
 
   .eq {
     background: var(--bg-alt);
@@ -183,6 +186,19 @@
     margin: 1.5rem 0;
   }
 
+  .domain-header {
+    font-family: 'Source Serif 4', 'Georgia', serif;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--bg-alt);
+    border-radius: 4px;
+    border-left: 4px solid var(--blue);
+  }
+
   footer {
     margin-top: 2.5rem;
     padding-top: 1rem;
@@ -194,134 +210,69 @@
 </head>
 <body>
 
-<h1>CRL-Atari: Consolidation Experiment Report</h1>
+<h1>CRL: Continual RL Consolidation Report</h1>
 <p class="subtitle">
-  Protik Nag &nbsp;|&nbsp; March 2026 &nbsp;|&nbsp;
+  Protik Nag &nbsp;|&nbsp; April 2026 &nbsp;|&nbsp;
   <span class="tag tag-blue">Continual RL</span>
   <span class="tag tag-green">Atari</span>
+  <span class="tag tag-violet">Classic Control</span>
   <span class="tag tag-amber">DQN</span>
-  <span class="tag tag-violet">Second-Order</span>
 </p>
 
 <!-- ────────────────────────────────────────── -->
 <h2>1. Overview</h2>
 
 <p>
-  This report summarizes experiments on consolidating three independently-trained Atari DQN experts
-  (Breakout, SpaceInvaders, Pong) into a single multi-task network.
-  We compare five consolidation strategies (Distillation, One-Shot, Iterative, Hybrid, WHC)
-  and two baselines (EWC, Multi-task joint training) drawn from second-order Taylor expansion
-  theory and classical continual learning literature.
-  The <strong>Hybrid</strong> method achieves the highest average expert retention (30.6%)
-  and is the only method to produce positive Pong scores across all 30 evaluation episodes.
+  This report summarizes experiments on consolidating independently-trained DQN experts
+  into a single multi-task network, evaluated across two domains:
+  <strong>Atari</strong> (Breakout, SpaceInvaders, Pong) and
+  <strong>Classic Control</strong> (CartPole, Acrobot, LunarLander).
+  We compare our primary method, <strong>Weighted Hessian Consolidation (WHC)</strong>,
+  against knowledge distillation (Distillation, Hybrid), sequential continual learning
+  baselines (EWC, TRAC, C-CHAIN, Progress &amp; Compress), and a multi-task oracle.
+</p>
+<p>
+  On Atari, <strong>Hybrid</strong> achieves the highest consolidation retention (48.5% average),
+  driven by near-expert Pong performance (90.2%).
+  <strong>Multi-task</strong> joint training sets the oracle ceiling at 53.4%.
+  WHC retains 26.2% on SpaceInvaders and 0.9% on Breakout but fails on Pong.
+  On Classic Control, no single method dominates all three tasks:
+  WHC achieves 97.3% CartPole retention, TRAC reaches 100%, but both fail Acrobot entirely.
+  C-CHAIN and Multi-task are the only methods to partially solve Acrobot.
 </p>
 
 <!-- ────────────────────────────────────────── -->
 <h2>2. Experimental Setup</h2>
 
-<h3>Expert Training</h3>
+<div class="domain-header">Atari (Image-Based)</div>
 <ul>
-  <li><strong>Architecture:</strong> 3-layer CNN (32-64-64 channels, kernels 8-4-3, strides 4-2-1) with 512-unit FC hidden layer and a unified 6-action output head covering the union action space of all three games</li>
+  <li><strong>Architecture:</strong> 3-layer CNN (32-64-64 channels, kernels 8-4-3, strides 4-2-1) with 512-unit FC hidden layer and a unified 6-action output head covering the union action space</li>
   <li><strong>Algorithm:</strong> Double DQN, 3M timesteps per game, learning rate 1e-4, batch size 32</li>
   <li><strong>Replay buffer:</strong> 500K transitions, AdamW optimizer, gradient clipping at 10.0</li>
   <li><strong>Exploration:</strong> Linear epsilon decay from 1.0 to 0.01 over 500K steps</li>
+  <li><strong>Tasks:</strong> Breakout, SpaceInvaders, Pong (union action space = 6 actions)</li>
+</ul>
+
+<div class="domain-header">Classic Control (Vector-State)</div>
+<ul>
+  <li><strong>Architecture:</strong> 2-layer MLP (128-128 hidden units), unified 4-action output head</li>
+  <li><strong>Algorithm:</strong> Double DQN, 200K timesteps per task, learning rate 1e-3, batch size 64</li>
+  <li><strong>State representation:</strong> Observations zero-padded to &reals;<sup>8</sup> (max dimension across tasks)</li>
+  <li><strong>Tasks:</strong> CartPole-v1 (dim 4, 2 actions), Acrobot-v1 (dim 6, 3 actions), LunarLander-v3 (dim 8, 4 actions)</li>
 </ul>
 
 <h3>Evaluation Protocol</h3>
 <ul>
-  <li>30 episodes per game, deterministic policy (argmax over valid actions)</li>
-  <li><code>episodic_life=False</code>, <code>clip_reward=False</code>, max 27K steps/episode</li>
-  <li>Action masking: Q-values for invalid actions set to &minus;&infin; before argmax</li>
+  <li>Atari: 30 episodes per game; Classic Control: 500 episodes per task</li>
+  <li>Deterministic policy (argmax over valid actions), action masking via &minus;&infin;</li>
   <li>Seed 42 throughout; all methods evaluated from the same expert checkpoints</li>
 </ul>
-
-<h3>Shared Initialization</h3>
-<p>Taylor-based consolidation methods (One-Shot, Iterative, Hybrid) initialize from the ensemble-mean anchor:</p>
-<div class="eq">w&#772; = (1/N) &Sigma;<sub>i</sub> w<sub>e</sub><sup>(i)</sup></div>
-<p>WHC computes its closed-form solution using Fisher at each expert's own optimum. EWC and Multi-task use their own training protocols.</p>
 
 <!-- ────────────────────────────────────────── -->
 <h2>3. Consolidation Methods</h2>
 
-<div class="method-card distillation">
-  <h3>A. Knowledge Distillation <span class="tag tag-teal">Baseline</span></h3>
-  <p>
-    Trains a student starting from the ensemble mean to match the soft Q-value distributions of all experts
-    using temperature-scaled KL divergence. Q-values are normalized per-task before softmax.
-  </p>
-  <div class="eq">
-    L<sub>KD</sub> = (1/N) &Sigma;<sub>i</sub> T<sup>2</sup> D<sub>KL</sub>(&sigma;(Q<sub>expert</sub>/T) || &sigma;(Q<sub>student</sub>/T))
-  </div>
-  <ul>
-    <li>10,000 epochs, lr = 5e-5, temperature T = 0.01, batch size 64, AdamW with gradient clip 1.0</li>
-    <li>Epoch snapshots at 10, 100, 500, 5K, 10K for convergence analysis</li>
-    <li>Per-task Q-value normalization (zero-mean, unit-variance) before softmax</li>
-  </ul>
-</div>
-
-<div class="method-card oneshot">
-  <h3>B. One-Shot Joint Consolidation <span class="tag tag-amber">Section 3, Theorem 3.4</span></h3>
-  <p>
-    All experts are considered simultaneously at the ensemble-mean anchor.
-    Averaged Fisher and gradient are computed across all tasks, then a single closed-form Taylor correction is applied.
-  </p>
-  <div class="eq">
-    F&#772; = (1/N) &Sigma;<sub>i</sub> F<sub>i</sub> &nbsp;&nbsp;|&nbsp;&nbsp;
-    g&#772; = (1/N) &Sigma;<sub>i</sub> g<sub>i</sub><br>
-    u* = &minus;(F&#772; + &lambda;I)<sup>&minus;1</sup> g&#772;<br>
-    w<sub>g</sub> = w&#772; + u*
-  </div>
-  <p><strong>Key detail:</strong> With anchor = ensemble mean, the drift centroid d* = 0 (Remark 3.6), so the update simplifies to a pure Newton step. No step size is used.</p>
-  <ul>
-    <li>Fisher computed on 20K high-confidence states per task (top-K by Q-value gap)</li>
-    <li>Per-task lambda weighting: Breakout=100, SpaceInvaders=100, Pong=500</li>
-    <li>Action masking on head layers zeroes drift for untrained actions</li>
-  </ul>
-</div>
-
-<div class="method-card iterative">
-  <h3>C. Multi-Round Iterative Consolidation <span class="tag tag-amber">Section 4, Algorithm 1</span></h3>
-  <p>
-    Extends One-Shot to K rounds. Each round re-expands around the current global model and applies
-    a Taylor correction with geometrically decaying step size.
-  </p>
-  <div class="eq">
-    for k = 0, ..., K&minus;1:<br>
-    &nbsp;&nbsp;Re-expand at w<sub>g</sub><sup>(k)</sup>, compute F&#772;<sub>k</sub>, g&#772;<sub>k</sub><br>
-    &nbsp;&nbsp;u<sub>k</sub>* = (F&#772;<sub>k</sub> + &lambda;I)<sup>&minus;1</sup> [&lambda; d<sub>k</sub>* &minus; g&#772;<sub>k</sub>]<br>
-    &nbsp;&nbsp;w<sub>g</sub><sup>(k+1)</sup> = w<sub>g</sub><sup>(k)</sup> + &eta;<sub>k</sub> u<sub>k</sub>*
-  </div>
-  <ul>
-    <li>K = 10 rounds, &eta;<sub>0</sub> = 0.9, &gamma; = 0.9 (step-size decay: &eta;<sub>k</sub> = &eta;<sub>0</sub> &middot; &gamma;<sup>k</sup>)</li>
-    <li><code>recompute_fisher=false</code>: Fisher/gradient computed once at the initial anchor and cached for all K steps</li>
-    <li>Per-task lambda: Breakout=100, SpaceInvaders=100, Pong=500</li>
-  </ul>
-</div>
-
-<div class="method-card hybrid">
-  <h3>D. Hybrid (Iterative Taylor + KD) <span class="tag tag-green">Section 5, Algorithm 2</span></h3>
-  <p>
-    Two-phase approach. Phase 1 provides a Taylor warm start (identical to Iterative above);
-    Phase 2 refines via knowledge distillation starting from the warm-start solution.
-    Theorem 5.2 bounds the improvement in KD convergence proportional to the Taylor approximation quality.
-  </p>
-  <p><strong>Phase 1 &mdash; Multi-Round Joint Taylor</strong> (identical to Iterative above):</p>
-  <ul>
-    <li>K = 10 rounds, &eta;<sub>0</sub> = 0.9, &gamma; = 0.9, cached Fisher</li>
-  </ul>
-  <p><strong>Phase 2 &mdash; Knowledge Distillation Refinement:</strong></p>
-  <div class="eq">
-    L<sub>KD</sub> = (1/N) &Sigma;<sub>i</sub> T<sup>2</sup> D<sub>KL</sub>(&sigma;(Q<sub>expert</sub>/T) || &sigma;(Q<sub>student</sub>/T))<br>
-    w<sub>g</sub> &larr; w<sub>g</sub> &minus; &eta;<sub>KD</sub> &nabla; L<sub>KD</sub>
-  </div>
-  <ul>
-    <li>10,000 KD epochs, lr = 5e-5, temperature T = 0.01, batch size 64, AdamW with gradient clip 1.0</li>
-    <li>Epoch snapshots at 10, 100, 500, 5K, 10K</li>
-  </ul>
-</div>
-
 <div class="method-card whc">
-  <h3>E. Weighted Hessian Consolidation (WHC) <span class="tag tag-blue">Eq. 11&ndash;13</span></h3>
+  <h3>A. Weighted Hessian Consolidation (WHC) <span class="tag tag-blue">Eq. 11&ndash;13, Primary</span></h3>
   <p>
     Closed-form solution using a surrogate loss formed by Hessian-weighted quadratic approximations
     expanded <em>at each expert's own optimum</em>. Placing expansions at the true optima eliminates
@@ -330,13 +281,40 @@
   <div class="eq">
     H<sub>agg</sub> = &Sigma;<sub>i</sub> &alpha;<sub>i</sub> H<sub>i</sub> &nbsp;&nbsp;|&nbsp;&nbsp;
     b<sub>agg</sub> = &Sigma;<sub>i</sub> &alpha;<sub>i</sub> H<sub>i</sub> w<sub>i</sub>*<br>
-    w&#770;<sub>&lambda;</sub> = (H<sub>agg</sub> + &lambda;I)<sup>&minus;1</sup> b<sub>agg</sub>
+    w&#770;<sub>&lambda;</sub> = (H<sub>agg</sub> + &lambda;I)<sup>&minus;1</sup> (b<sub>agg</sub> + &lambda;w&#772;)
   </div>
   <ul>
     <li>Fisher computed at each expert's own checkpoint (not a shared anchor)</li>
     <li>Uniform task weights &alpha;<sub>i</sub> = 1/N by default</li>
-    <li>Tikhonov regularization &lambda; = 1.0</li>
     <li>Fisher samples: 20,000 high-confidence states per task</li>
+    <li>Single closed-form solution (no iterative optimization)</li>
+  </ul>
+</div>
+
+<div class="method-card distillation">
+  <h3>B. Knowledge Distillation <span class="tag tag-teal">Baseline</span></h3>
+  <p>
+    Trains a student starting from the ensemble mean to match the soft Q-value distributions of all experts
+    using temperature-scaled KL divergence. Q-values are normalized per-task before softmax.
+  </p>
+  <div class="eq">
+    L<sub>KD</sub> = (1/N) &Sigma;<sub>i</sub> T<sup>2</sup> D<sub>KL</sub>(&sigma;(Q<sub>expert</sub>/T) || &sigma;(Q<sub>student</sub>/T))
+  </div>
+  <ul>
+    <li>10,000 epochs, lr = 5e-5, temperature T = 0.01, batch size 64</li>
+    <li>Per-task Q-value normalization (zero-mean, unit-variance) before softmax</li>
+  </ul>
+</div>
+
+<div class="method-card hybrid">
+  <h3>C. Hybrid (Iterative Taylor + KD) <span class="tag tag-green">Algorithm 2</span></h3>
+  <p>
+    Two-phase approach. Phase 1 provides a Taylor warm start via multi-round joint consolidation;
+    Phase 2 refines via knowledge distillation from the warm-start solution.
+  </p>
+  <ul>
+    <li><strong>Phase 1:</strong> K = 10 rounds of Taylor updates, &eta;<sub>0</sub> = 0.9, &gamma; = 0.9</li>
+    <li><strong>Phase 2:</strong> 10,000 KD epochs, lr = 5e-5, T = 0.01</li>
   </ul>
 </div>
 
@@ -344,33 +322,59 @@
 <h3>Baselines</h3>
 
 <div class="method-card ewc">
-  <h3>F. Elastic Weight Consolidation (EWC) <span class="tag tag-amber">Kirkpatrick et al. 2017</span></h3>
+  <h3>D. Elastic Weight Consolidation (EWC) <span class="tag tag-amber">Kirkpatrick et al. 2017</span></h3>
   <p>
     Sequential continual learning with a Fisher-weighted L2 penalty anchoring parameters toward previous task solutions.
-    Trained sequentially on the task order; the EWC penalty accumulates across tasks.
   </p>
   <div class="eq">
     L<sub>EWC</sub>(&theta;) = L<sub>task</sub>(&theta;) + (&lambda;/2) &Sigma;<sub>i,j</sub> F<sub>i</sub><sup>j</sup> (&theta;<sub>j</sub> &minus; &theta;<sub>i,j</sub>*)<sup>2</sup>
   </div>
   <ul>
     <li>&lambda; = 5000, Fisher samples: 5000 per task, Online EWC decay &gamma; = 0.95</li>
-    <li>Trained sequentially via <code>scripts/train_ewc.py</code></li>
+    <li>Sequential training on task order; penalty accumulates across tasks</li>
   </ul>
 </div>
 
 <div class="method-card multitask">
-  <h3>G. Multi-Task Joint Training <span class="tag tag-red">Oracle Upper Bound</span></h3>
+  <h3>E. Multi-Task Joint Training <span class="tag tag-red">Oracle Upper Bound</span></h3>
   <p>
     Single DQN trained simultaneously on all tasks via round-robin environment stepping and random task sampling.
     Not subject to catastrophic forgetting; serves as an oracle upper bound.
-    Trained via <code>scripts/train_multitask.py</code> for 6M total steps (~2M per task).
+    Atari: 6M total steps; Classic Control: 600K total steps.
+  </p>
+</div>
+
+<div class="method-card trac">
+  <h3>F. TRAC <span class="tag tag-amber">Classic Control Only</span></h3>
+  <p>
+    Adaptive continual learning with robust tracking. Combines Adam optimization with an
+    adaptive trust region that automatically controls step sizes to prevent catastrophic forgetting
+    during sequential task training. Parameter-free (no &lambda; to tune).
+  </p>
+</div>
+
+<div class="method-card cchain">
+  <h3>G. C-CHAIN <span class="tag tag-amber">Classic Control Only</span></h3>
+  <p>
+    Churn-aware continual learning. Manages policy churn by penalizing large changes in Q-value
+    predictions on previously seen states during sequential training. Addresses the gap between
+    optimization-level forgetting and behavioral-level policy instability.
+  </p>
+</div>
+
+<div class="method-card pc">
+  <h3>H. Progress &amp; Compress (P&amp;C) <span class="tag tag-violet">Schwarz et al. 2018</span></h3>
+  <p>
+    Dual-network architecture: a "progress" (active) column learns each new task, then the learned
+    knowledge is compressed into a "knowledge base" network via distillation after each task.
+    The knowledge base provides lateral connections to the active column.
   </p>
 </div>
 
 <!-- ────────────────────────────────────────── -->
-<h2>4. Results</h2>
+<h2>4. Atari Results</h2>
 
-<p>All consolidation methods evaluated with 30 episodes per game, seed 42, deterministic policy.</p>
+<p>All methods evaluated with 30 episodes per game, seed 42, deterministic policy.</p>
 
 <table>
   <thead>
@@ -390,54 +394,46 @@
       <td>19.9 &plusmn; 0.9</td>
       <td>&mdash;</td>
     </tr>
-    <tr>
-      <td>One-Shot</td>
-      <td class="worst">2.4 &plusmn; 4.0</td>
-      <td>128.7 &plusmn; 83.8</td>
-      <td class="worst">&minus;21.0 &plusmn; 0.0</td>
-      <td><span class="retention retention-low">&minus;30.8%</span></td>
+    <tr style="background: #DBEAFE22;">
+      <td><strong>Multi-task</strong> (oracle)</td>
+      <td class="best">137.2 &plusmn; 71.7</td>
+      <td class="best">992.7 &plusmn; 621.8</td>
+      <td>5.7 &plusmn; 16.2</td>
+      <td><span class="retention retention-high">53.4%</span></td>
     </tr>
-    <tr>
-      <td>Iterative</td>
-      <td>3.0 &plusmn; 4.2</td>
-      <td class="best">215.0 &plusmn; 119.5</td>
-      <td class="worst">&minus;21.0 &plusmn; 0.0</td>
-      <td><span class="retention retention-low">&minus;28.0%</span></td>
+    <tr style="background: #ECFDF5;">
+      <td><strong>Hybrid</strong></td>
+      <td>9.2 &plusmn; 3.2</td>
+      <td>543.8 &plusmn; 145.6</td>
+      <td class="best">18.0 &plusmn; 3.9</td>
+      <td><span class="retention retention-high">48.5%</span></td>
     </tr>
     <tr>
       <td>Distillation</td>
-      <td>5.4 &plusmn; 6.5</td>
-      <td class="worst">33.7 &plusmn; 19.4</td>
-      <td>&minus;15.5 &plusmn; 3.3</td>
-      <td><span class="retention retention-low">&minus;24.4%</span></td>
+      <td>16.8 &plusmn; 9.3</td>
+      <td>372.3 &plusmn; 44.1</td>
+      <td class="best">18.0 &plusmn; 3.7</td>
+      <td><span class="retention retention-mid">43.6%</span></td>
     </tr>
     <tr>
       <td>EWC</td>
       <td>40.7 &plusmn; 4.0</td>
       <td>244.5 &plusmn; 64.4</td>
-      <td>&minus;20.8 &plusmn; 0.4</td>
+      <td class="worst">&minus;20.8 &plusmn; 0.4</td>
       <td><span class="retention retention-low">&minus;23.4%</span></td>
     </tr>
-    <tr style="background: #ECFDF5;">
-      <td><strong>Hybrid (ours)</strong></td>
-      <td>6.1 &plusmn; 4.0</td>
-      <td>154.2 &plusmn; 72.8</td>
-      <td class="best">15.0 &plusmn; 6.6</td>
-      <td><span class="retention retention-high">30.6%</span></td>
-    </tr>
     <tr>
-      <td>WHC</td>
-      <td colspan="4" style="text-align:center; color: var(--text-muted); font-style: italic;">Checkpoint available; evaluation pending</td>
-    </tr>
-    <tr>
-      <td>Multi-task</td>
-      <td colspan="4" style="text-align:center; color: var(--text-muted); font-style: italic;">Training complete; evaluation pending</td>
+      <td><strong>WHC</strong> (ours)</td>
+      <td class="worst">3.3 &plusmn; 5.0</td>
+      <td>270.0 &plusmn; 0.0</td>
+      <td class="worst">&minus;21.0 &plusmn; 0.0</td>
+      <td><span class="retention retention-low">&minus;26.2%</span></td>
     </tr>
   </tbody>
 </table>
 
-<h3>Per-Game Expert Retention</h3>
-<p>Retention = consolidated reward / expert reward. Negative values occur when consolidated scores below the random-play floor (Pong minimum is &minus;21).</p>
+<h3>Per-Game Expert Retention (Atari)</h3>
+<p>Retention = consolidated reward / expert reward. Negative values occur when scores fall below the random-play floor.</p>
 <table>
   <thead>
     <tr>
@@ -448,129 +444,230 @@
     </tr>
   </thead>
   <tbody>
-    <tr>
-      <td>One-Shot</td>
-      <td><span class="retention retention-low">0.6%</span></td>
-      <td><span class="retention retention-low">12.5%</span></td>
-      <td><span class="retention retention-low">&minus;105%</span></td>
-    </tr>
-    <tr>
-      <td>Iterative</td>
-      <td><span class="retention retention-low">0.8%</span></td>
-      <td><span class="retention retention-mid">20.9%</span></td>
-      <td><span class="retention retention-low">&minus;105%</span></td>
-    </tr>
-    <tr>
-      <td>Distillation</td>
-      <td><span class="retention retention-low">1.4%</span></td>
-      <td><span class="retention retention-low">3.3%</span></td>
-      <td><span class="retention retention-low">&minus;78%</span></td>
-    </tr>
-    <tr>
-      <td>EWC</td>
-      <td><span class="retention retention-mid">10.5%</span></td>
-      <td><span class="retention retention-mid">23.7%</span></td>
-      <td><span class="retention retention-low">&minus;104%</span></td>
+    <tr style="background: #DBEAFE22;">
+      <td><strong>Multi-task</strong></td>
+      <td><span class="retention retention-mid">35.5%</span></td>
+      <td><span class="retention retention-high">96.3%</span></td>
+      <td><span class="retention retention-mid">28.5%</span></td>
     </tr>
     <tr style="background: #ECFDF5;">
       <td><strong>Hybrid</strong></td>
-      <td><span class="retention retention-low">1.6%</span></td>
-      <td><span class="retention retention-mid">15.0%</span></td>
-      <td><span class="retention retention-high">75.3%</span></td>
+      <td><span class="retention retention-low">2.4%</span></td>
+      <td><span class="retention retention-mid">52.8%</span></td>
+      <td><span class="retention retention-high">90.2%</span></td>
+    </tr>
+    <tr>
+      <td>Distillation</td>
+      <td><span class="retention retention-low">4.4%</span></td>
+      <td><span class="retention retention-mid">36.1%</span></td>
+      <td><span class="retention retention-high">90.3%</span></td>
+    </tr>
+    <tr>
+      <td>EWC</td>
+      <td><span class="retention retention-low">10.5%</span></td>
+      <td><span class="retention retention-mid">23.7%</span></td>
+      <td><span class="retention retention-low">&minus;104.5%</span></td>
+    </tr>
+    <tr>
+      <td><strong>WHC</strong></td>
+      <td><span class="retention retention-low">0.9%</span></td>
+      <td><span class="retention retention-mid">26.2%</span></td>
+      <td><span class="retention retention-low">&minus;105.5%</span></td>
     </tr>
   </tbody>
 </table>
 
 <div class="callout callout-green">
-  <strong>Key finding:</strong> Hybrid is the only method that recovers positive Pong scores (15.0 vs expert 19.9, 75.3% retention).
-  All 30 evaluation episodes scored &ge; 1, with median 17.5.
-  This validates Theorem 5.2: the Taylor warm start provides a meaningful advantage for KD convergence on the most difficult task.
+  <strong>Atari key finding:</strong> KD-based methods (Hybrid, Distillation) achieve near-expert Pong performance (~90% retention),
+  while all other methods fail catastrophically on Pong (&minus;21.0, worst possible).
+  Multi-task leads overall (53.4%) by dominating SpaceInvaders (96.3%) and Breakout (35.5%).
 </div>
 
 <div class="callout callout-blue">
-  <strong>EWC note:</strong> EWC achieves the strongest Breakout (10.5%) and SpaceInvaders (23.7%) retention among non-Hybrid methods,
-  substantially outperforming the Taylor consolidation methods on those two games. Its failure on Pong (&minus;104%)
-  suggests that sequential training on the earlier tasks (Breakout, then SpaceInvaders) fully overwrites Pong-relevant features
-  before they can be protected, despite the penalty.
+  <strong>WHC on Atari:</strong> WHC's closed-form Hessian-weighted solution produces 26.2% SpaceInvaders retention
+  and a consistent 270.0 score across all 30 episodes (zero variance). However, the diagonal Fisher approximation
+  cannot capture the cross-parameter interactions required for Pong's paddle control or Breakout's
+  brick-tracking strategy, resulting in near-zero performance on those games.
 </div>
 
 <!-- ────────────────────────────────────────── -->
-<h2>5. Visualizations</h2>
+<h2>5. Classic Control Results</h2>
 
-<p>All figures are generated by the visualization scripts and saved to <code>results/figures/{png,svg}/</code>.</p>
+<p>All methods evaluated with 500 episodes per task, seed 42, deterministic policy. Acrobot has a &minus;500 timeout floor.</p>
 
-<ul>
-  <li><strong>Fig 1</strong> &mdash; <code>01_expert_training_curves</code>: Expert reward curves (Breakout, SpaceInvaders, Pong). Raw rewards + smoothed trend, best-point marker.</li>
-  <li><strong>Fig 2</strong> &mdash; <code>02_retention_heatmap</code>: Expert retention heatmap across all evaluated methods and games.</li>
-  <li><strong>Fig 3</strong> &mdash; <code>loss_landscape_combined_default</code>: PCA-projected loss landscape. Expert optima and consolidated model positions in weight space.</li>
-  <li><strong>Fig 4</strong> &mdash; <code>loss_landscape_3d_default</code>: 3D loss surface (75&times;75 grid, averaged across games). Consolidated solutions relative to expert basins.</li>
-  <li><strong>Fig 5</strong> &mdash; <code>qvalue_maxq_kde_default</code>: Max-Q value distributions per game (KDE). Experts vs consolidated models.</li>
-  <li><strong>Fig 6</strong> &mdash; <code>umap_expert_default</code>: UMAP of penultimate-layer activations. Task structure visible in feature space.</li>
-</ul>
+<table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>CartPole</th>
+      <th>Acrobot</th>
+      <th>LunarLander</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="expert-row">
+      <td>Expert (upper bound)</td>
+      <td>500.0 &plusmn; 0.0</td>
+      <td>&minus;83.6 &plusmn; 14.4</td>
+      <td>107.0 &plusmn; 106.9</td>
+    </tr>
+    <tr>
+      <td>TRAC</td>
+      <td class="best">500.0 &plusmn; 0.0</td>
+      <td class="worst">&minus;500.0 &plusmn; 0.0</td>
+      <td>&minus;123.4 &plusmn; 51.0</td>
+    </tr>
+    <tr>
+      <td><strong>WHC</strong> (ours)</td>
+      <td class="best">486.3 &plusmn; 73.6</td>
+      <td class="worst">&minus;500.0 &plusmn; 0.0</td>
+      <td>&minus;224.2 &plusmn; 215.9</td>
+    </tr>
+    <tr>
+      <td>Multi-task (oracle)</td>
+      <td>154.6 &plusmn; 80.0</td>
+      <td class="best">&minus;121.6 &plusmn; 30.1</td>
+      <td>&minus;63.6 &plusmn; 99.4</td>
+    </tr>
+    <tr>
+      <td>Distillation</td>
+      <td>117.4 &plusmn; 102.4</td>
+      <td class="worst">&minus;500.0 &plusmn; 0.0</td>
+      <td>&minus;246.2 &plusmn; 223.4</td>
+    </tr>
+    <tr>
+      <td>Hybrid</td>
+      <td>83.8 &plusmn; 3.4</td>
+      <td>&minus;476.1 &plusmn; 57.0</td>
+      <td>&minus;318.9 &plusmn; 193.3</td>
+    </tr>
+    <tr>
+      <td>C-CHAIN</td>
+      <td>9.6 &plusmn; 0.6</td>
+      <td class="best">&minus;211.2 &plusmn; 76.3</td>
+      <td>&minus;39.2 &plusmn; 23.8</td>
+    </tr>
+    <tr>
+      <td>P&amp;C</td>
+      <td>9.1 &plusmn; 0.7</td>
+      <td class="worst">&minus;500.0 &plusmn; 0.0</td>
+      <td class="best">53.2 &plusmn; 61.4</td>
+    </tr>
+    <tr>
+      <td>EWC</td>
+      <td>13.6 &plusmn; 1.3</td>
+      <td class="worst">&minus;500.0 &plusmn; 0.0</td>
+      <td>&minus;116.3 &plusmn; 53.4</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-amber">
+  <strong>Classic Control key finding:</strong> No single method dominates all three tasks.
+  The best performer on each task comes from a different method family:
+  <strong>TRAC/WHC</strong> on CartPole (100%/97.3%),
+  <strong>Multi-task</strong> on Acrobot (&minus;121.6 vs expert &minus;83.6),
+  <strong>P&amp;C</strong> on LunarLander (53.2, the only positive score among all methods).
+</div>
+
+<div class="callout callout-blue">
+  <strong>WHC on Classic Control:</strong> WHC achieves 97.3% CartPole retention (486.3/500),
+  demonstrating that the Hessian-weighted closed-form solution works well for structurally simple
+  tasks with low-dimensional state spaces. However, it hits the &minus;500 timeout floor on Acrobot,
+  indicating that the diagonal Fisher cannot distinguish the swing-up policy from noise in the
+  zero-padded state representation.
+</div>
+
+<div class="callout callout-green">
+  <strong>C-CHAIN standout:</strong> C-CHAIN is the only non-oracle method to partially solve Acrobot
+  (&minus;211.2 vs expert &minus;83.6, normalized retention 69.4%) while maintaining the lowest
+  LunarLander variance (&minus;39.2 &plusmn; 23.8). Its churn-aware penalty appears to
+  preserve the temporal structure needed for sequential control tasks.
+</div>
 
 <!-- ────────────────────────────────────────── -->
-<h2>6. Analysis</h2>
+<h2>6. Cross-Domain Analysis</h2>
 
-<h3>Why Hybrid Works on Pong</h3>
-<p>The Hybrid method combines complementary strengths:</p>
+<h3>WHC: Strengths and Limitations</h3>
+<p>
+  WHC's closed-form solution (Eq. 9) provides a principled, optimization-free method for
+  consolidating expert models. Its performance profile is consistent across domains: strong
+  retention on the simplest task (CartPole 97.3%, SpaceInvaders 26.2%) but catastrophic
+  failure on tasks requiring fine-grained temporal control (Pong &minus;21.0, Acrobot &minus;500).
+</p>
+<p>
+  The fundamental bottleneck is the <strong>diagonal Fisher approximation</strong>. The true Hessian
+  of a policy network has significant off-diagonal structure encoding how parameters interact
+  across layers and timesteps. The diagonal approximation captures per-parameter importance but
+  discards these interactions, producing a consolidated model that preserves individual parameter
+  magnitudes but not their coordinated behavior. This explains why WHC succeeds on CartPole
+  (where near-linear control suffices) but fails on Pong (where precise paddle-ball tracking
+  requires coordinated feature activations).
+</p>
+
+<h3>KD-Based Methods vs. Hessian Methods</h3>
+<p>
+  On Atari, Distillation and Hybrid both achieve ~90% Pong retention, dramatically outperforming
+  WHC and EWC. KD operates directly on the Q-value output distribution rather than the parameter
+  space, allowing it to preserve the <em>functional</em> behavior of each expert without relying on
+  accurate curvature estimation. The Hybrid method's Taylor warm-start provides a modest
+  advantage on SpaceInvaders (52.8% vs 36.1%) but does not improve Pong retention (90.2% vs 90.3%).
+</p>
+<p>
+  On Classic Control, however, the KD advantage largely disappears. Distillation achieves only
+  23.5% CartPole retention (vs WHC's 97.3%) and fails Acrobot entirely. The Classic Control
+  domain's smaller networks and lower-dimensional state spaces may not provide enough capacity
+  for KD to find a good shared representation, or the lower temperature may be over-sharpening
+  the target distributions for simpler policies.
+</p>
+
+<h3>Sequential Methods and Task-Order Sensitivity</h3>
+<p>
+  EWC, TRAC, C-CHAIN, and P&amp;C all train sequentially on the task order (CartPole &rarr; Acrobot
+  &rarr; LunarLander). The results reveal strong task-order effects:
+</p>
 <ul>
-  <li><strong>Phase 1 (Taylor)</strong> provides a structurally informed starting point by solving a second-order optimization problem that respects the Fisher information geometry. This moves the model close to the expert manifold without gradient-based optimization.</li>
-  <li><strong>Phase 2 (KD)</strong> refines the soft policy distributions, recovering nuances that the diagonal Fisher approximation misses. Starting from the Taylor solution rather than the raw ensemble mean gives KD a meaningful head start for the hardest task.</li>
+  <li><strong>TRAC</strong> perfectly retains CartPole (Task 1) but completely loses Acrobot (Task 2). Its adaptive trust region protects early tasks at the expense of later ones.</li>
+  <li><strong>C-CHAIN</strong> trades CartPole retention (1.9%) for Acrobot (69.4% normalized) and LunarLander (&minus;39.2), showing the most balanced sequential transfer.</li>
+  <li><strong>P&amp;C</strong> achieves the only positive LunarLander score (53.2) among all methods, suggesting its compress phase effectively distills useful representations from earlier tasks into the knowledge base.</li>
+  <li><strong>EWC</strong> on Atari retains the most Breakout (10.5%) among consolidation methods but fails on Pong (Task 3), consistent with the asymmetric protection bias of sequential Fisher penalties.</li>
 </ul>
 
-<h3>Why Pure Taylor Methods Fail on Pong</h3>
+<h3>Multi-Task as Oracle</h3>
 <p>
-  One-Shot and Iterative both score &minus;21 on Pong (worst possible). The diagonal Fisher approximation
-  captures parameter importance but cannot represent cross-parameter interactions critical for
-  Pong's precise paddle control. The ensemble-mean initialization also dilutes Pong-specialized features
-  since Breakout and SpaceInvaders dominate the Fisher spectrum (more frequent Q-value variation, larger
-  replay buffers by effective diversity).
+  Multi-task joint training sets the ceiling on Atari at 53.4% average retention, with
+  near-perfect SpaceInvaders (96.3%) but weaker Pong (28.5%) and Breakout (35.5%). The Pong
+  gap is notable: Multi-task scores only 5.7 while both Distillation and Hybrid exceed 18.0.
+  This suggests that round-robin environment stepping does not allocate sufficient learning
+  signal to Pong's sparse reward structure, whereas KD can directly transfer the expert's
+  converged policy.
 </p>
-
-<h3>Why EWC Recovers Breakout but Not Pong</h3>
 <p>
-  EWC is the best-performing method on Breakout (10.5%) and SpaceInvaders (23.7%), benefiting from its
-  sequential training that never destroys the first-task solution before registering the penalty.
-  However, by the time training reaches Pong (Task 3), the Fisher penalty protecting Breakout and SpaceInvaders
-  dominates the loss landscape and prevents meaningful adaptation to Pong. The sequential nature of EWC
-  creates an inherent asymmetry: earlier tasks are protected more strongly than later tasks.
-</p>
-
-<h3>Why Pure Distillation Underperforms</h3>
-<p>
-  Starting from the ensemble mean, pure KD must traverse a larger loss landscape.
-  SpaceInvaders retention degrades to 3.3% at 10,000 epochs, while Pong shows a non-monotone
-  trajectory (reward decreased from &minus;6.4 at 50 epochs to &minus;15.5 at 10,000 epochs),
-  suggesting that the ensemble-mean initialization is simply too far from the expert manifold
-  for gradient descent to recover without the Taylor warm start.
-</p>
-
-<h3>Breakout Retention Across All Methods</h3>
-<p>
-  All Taylor consolidation methods retain &lt; 2% of expert Breakout performance. Breakout requires highly
-  specialized feature activations for paddle-ball tracking that are destroyed by ensemble averaging.
-  EWC's 10.5% retention confirms the bottleneck lies in the initialization strategy, not the consolidation
-  algorithm — EWC never averages the weights and thus preserves the Breakout solution more directly.
+  On Classic Control, Multi-task is the only method to substantively solve Acrobot (&minus;121.6)
+  while maintaining moderate CartPole (154.6) and LunarLander (&minus;63.6). Its LunarLander
+  score remains negative, indicating that even simultaneous training struggles with the
+  landing precision required by this task.
 </p>
 
 <!-- ────────────────────────────────────────── -->
-<h2>7. Open Questions and Next Steps</h2>
+<h2>7. Next Steps</h2>
 
 <ul>
-  <li><strong>WHC evaluation:</strong> Run <code>scripts/evaluate.py</code> on <code>consolidated_whc.pt</code> to complete the method comparison. WHC's property of computing Fisher at each expert's own optimum may improve on the Taylor methods for Pong.</li>
-  <li><strong>Multi-task oracle:</strong> Evaluate the multi-task checkpoint to establish the true upper bound. The gap between multi-task and Hybrid quantifies the remaining headroom for consolidation research.</li>
-  <li><strong>Breakout recovery:</strong> Task-weighted initialization (anchor closer to Breakout expert) or progressive consolidation (add tasks one at a time) could address the ensemble-averaging bottleneck.</li>
-  <li><strong>KD early stopping:</strong> Pure distillation regressed on Pong after ~50 epochs. A validation-based stopping criterion could substantially improve the Distillation baseline.</li>
-  <li><strong>Fisher approximation quality:</strong> Diagonal Fisher is insufficient for games requiring precise temporal control. Block-diagonal or K-FAC approximations are worth investigating for the Taylor methods.</li>
-  <li><strong>Scaling to more games:</strong> With N = 3, ensemble-mean dilution is moderate. With N &ge; 10, a hierarchical merging strategy may be required.</li>
+  <li><strong>Block-diagonal Fisher for WHC:</strong> Replace the diagonal Fisher with a K-FAC or block-diagonal approximation to capture cross-parameter interactions. This is the highest-priority improvement given WHC's consistent failure on temporally demanding tasks.</li>
+  <li><strong>Task-weighted initialization:</strong> Anchor the WHC regularization term toward the expert of the hardest task (Pong/Acrobot) rather than the uniform ensemble mean, to reduce dilution of task-specific features.</li>
+  <li><strong>C-CHAIN + WHC hybrid:</strong> C-CHAIN's balanced sequential transfer could serve as initialization for WHC, combining behavioral preservation with Hessian-weighted consolidation.</li>
+  <li><strong>KD early stopping:</strong> Both Distillation and Hybrid may benefit from validation-based stopping criteria, as the distillation epoch sweep showed non-monotone performance on some tasks.</li>
+  <li><strong>Scaling to more tasks:</strong> With N = 3, ensemble-mean dilution is moderate. Hierarchical merging strategies (pairwise WHC followed by full consolidation) should be explored for N &ge; 5.</li>
+  <li><strong>LunarLander investigation:</strong> Only P&amp;C achieves positive LunarLander scores. Understanding why its compress phase succeeds where other methods fail could inform future consolidation designs.</li>
 </ul>
 
 <!-- ────────────────────────────────────────── -->
 
 <footer>
-  Updated March 2026 &nbsp;|&nbsp; CRL-Atari project &nbsp;|&nbsp;
-  30 eval episodes per game, seed 42 &nbsp;|&nbsp;
-  WHC and Multi-task evaluations pending
+  Updated April 2026 &nbsp;|&nbsp; CRL project &nbsp;|&nbsp;
+  Atari: 30 eval episodes per game &nbsp;|&nbsp;
+  Classic Control: 500 eval episodes per task &nbsp;|&nbsp;
+  Seed 42
 </footer>
 
 </body>
