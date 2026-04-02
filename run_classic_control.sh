@@ -6,7 +6,7 @@
 #SBATCH --output job%j.%N.out
 #SBATCH --error job%j.%N.err
 #SBATCH -p dgx_aic
-#SBATCH --time=06:00:00
+#SBATCH --time=02:00:00
 
 # =============================================================================
 # CRL Classic Control: Full Multi-Seed Experiment
